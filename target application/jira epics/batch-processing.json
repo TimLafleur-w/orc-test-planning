@@ -1,0 +1,307 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-6",
+  "slug": "batch-processing",
+  "title": "Batch Processing — Settlement, Valuation, Statements & Reconciliation",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Core",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "BrokerEdge captures trades in real time but has no scheduled processing to close the books each day. Filled orders are never settled, positions are never revalued to end-of-day prices, no portfolio snapshots exist to show daily performance, no statements are produced, and nothing reconciles internal records against the clearing system. Without batch processing, the portfolio view has no historical baseline and there is no periodic integrity check or investor statement.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Settle filled trades and revalue portfolios at end of day.",
+      "success_measure": "The settlement job marks filled-and-unsettled orders settled exactly once, and the valuation job writes an end-of-day portfolio snapshot and position values for every funded account.",
+      "measurement_method": "Batch integration test asserting settled flags flip once and a snapshot row exists per account after valuation."
+    },
+    {
+      "id": "G-2",
+      "goal": "Generate periodic account statements.",
+      "success_measure": "The statement job produces a downloadable statement artifact per account for the period and records STATEMENT_GENERATED.",
+      "measurement_method": "Batch test asserting a statement record and retrievable artifact per account."
+    },
+    {
+      "id": "G-3",
+      "goal": "Reconcile internal records against the clearing system.",
+      "success_measure": "The reconciliation job compares internal trades to the Mock Service clearing view, records discrepancies, and submits the regulatory trade report.",
+      "measurement_method": "Batch test asserting discrepancies are recorded and the regulatory report endpoint is called."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Jordan",
+      "role": "Platform / Operations Engineer",
+      "goal": "Run reliable end-of-day jobs that settle, value, report, and reconcile without overlap or data corruption.",
+      "pain_point": "Manual or overlapping end-of-day processing risks inconsistent balances and missed reconciliation."
+    },
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "See accurate daily performance and receive periodic statements.",
+      "pain_point": "Without settlement, valuation, and statements there is no trustworthy daily record of holdings."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Implement EndOfDaySettlementJob (Spring Batch, chunk-oriented) processing orders WHERE status=FILLED AND settled=false, updating positions using weighted average cost and marking orders settled exactly once, per Sections 6.4 and 15.1.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Implement PortfolioValuationJob writing current position values (quantity times end-of-day price) and a portfolio_snapshots row per account for dayChange and performance history, per Sections 6.4 and 15.1.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Implement StatementGenerationJob producing a statement per account via the Mock Service PDF/S3 endpoints, recording a statement reference and emitting STATEMENT_GENERATED.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Implement ReconciliationJob comparing internal trades to the Mock Service clearing view, recording discrepancies (e.g. RECONCILIATION_DISCREPANCY), and submitting the regulatory trade report to the Mock Service regulatory endpoint.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Guard against concurrent execution: valuation must not start while settlement is running, using a JobExplorer running-instance check or job chaining, per Section 16 AVOID-7.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Emit batch audit events (BATCH_JOB_STARTED, BATCH_JOB_COMPLETED, POSITION_UPDATED, STATEMENT_GENERATED, RECONCILIATION_DISCREPANCY) published directly to Kafka with acks=all and retry, per Section 16 AT-3; publish failures are logged as ERROR and alertable.",
+      "priority": "Must",
+      "source": ["G-1", "G-2", "G-3"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Fetch end-of-day prices for valuation using the Mock Service batch quote endpoint rather than per-position HTTP calls, per Section 16 AVOID-1.",
+      "priority": "Should",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-8",
+      "description": "Schedule jobs on their configured crons per Section 15.6, with configuration via environment variables: settlement at 18:00 Mon–Fri; portfolio valuation at 18:30 Mon–Fri; reconciliation at 19:00 Mon–Fri; statement generation at 01:00 on the 1st of each month.",
+      "priority": "Must",
+      "source": ["G-1", "G-2", "G-3"]
+    },
+    {
+      "id": "FR-9",
+      "description": "Author and own the Flyway migrations for this epic: `V007__create_portfolio_snapshots.sql` (portfolio_snapshots, index on (account_id, snapshot_date)), `V008__create_statements.sql` (statements table), and `V010__create_spring_batch_schema.sql` (Spring Batch metadata placeholder), per Section 6.2.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-10",
+      "description": "Own and implement the Mock Service endpoints this epic depends on in /mock-service: PDF/S3 statement generation, the clearing view used for reconciliation, and the regulatory trade-report endpoint, per Section 10.",
+      "priority": "Must",
+      "source": ["G-2", "G-3"]
+    }
+  ],
+  "non_functional_requirements": {
+    "performance": [
+      "Jobs are chunk-oriented and use batch price lookups to avoid N+1 HTTP calls (Section 16 AVOID-1)."
+    ],
+    "availability": [
+      "Jobs writing shared tables never run concurrently on the same data set (Section 16 AVOID-7)."
+    ],
+    "compliance": [
+      "Settlement, valuation, statements, and reconciliation each emit audit events; reconciliation submits the regulatory trade report.",
+      "Each filled order is settled exactly once (idempotent via the settled flag)."
+    ],
+    "scalability": [
+      "Batch runs within the batch-service memory budget on the 16 GB machine per Section 7.2."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Settlement marks fills settled once",
+      "given": "filled orders with settled=false",
+      "when": "EndOfDaySettlementJob runs",
+      "then": ["each order is marked settled exactly once and positions reflect weighted average cost"],
+      "and": ["re-running the job does not re-process already-settled orders"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Valuation writes daily snapshots",
+      "given": "funded accounts with positions and end-of-day prices",
+      "when": "PortfolioValuationJob runs",
+      "then": ["a portfolio_snapshots row is written per account", "position current values reflect end-of-day prices"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-5",
+      "scenario": "Valuation does not overlap settlement",
+      "given": "EndOfDaySettlementJob is still running",
+      "when": "PortfolioValuationJob is triggered",
+      "then": ["the valuation job aborts or waits rather than running concurrently against shared tables"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-4",
+      "scenario": "Reconciliation records discrepancies and reports",
+      "given": "internal trades and the Mock Service clearing view",
+      "when": "ReconciliationJob runs",
+      "then": ["discrepancies are recorded", "the regulatory trade report endpoint is called"],
+      "and": ["a RECONCILIATION_DISCREPANCY audit event is emitted for each discrepancy"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-3",
+      "scenario": "Statements are generated per account",
+      "given": "accounts with activity for the period",
+      "when": "StatementGenerationJob runs",
+      "then": ["a statement artifact is produced per account and a statement reference is recorded"],
+      "and": ["a STATEMENT_GENERATED audit event is emitted"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "End-of-day settlement of filled orders with idempotent settled flag",
+      "Portfolio valuation writing position values and daily snapshots",
+      "Statement generation via Mock Service PDF/S3",
+      "Reconciliation against clearing with discrepancy recording and regulatory report submission",
+      "Concurrent-execution guard across jobs",
+      "Batch audit events (direct Kafka publish with retry)",
+      "Batch price lookups and cron scheduling via environment config"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Real settlement (T+1/T+2) mechanics and external custodians",
+        "rationale": "Settlement is simulated end-of-day in v1; no real clearing/custody integration."
+      },
+      {
+        "item": "batch_audit_outbox durability for batch audit events",
+        "rationale": "v1 publishes batch audit events directly to Kafka per Section 16 AT-3; a batch outbox is a Phase 2 exit item."
+      },
+      {
+        "item": "Intraday revaluation",
+        "rationale": "Position values are refreshed end-of-day; intraday values are computed at query time per Section 16 AT-4."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "framework": "Spring Boot 3.x + Spring Batch 5.x",
+      "orm_access": "JDBC-based batch readers/writers (no shared JPA entities, Section 16 AVOID-2)",
+      "database": "PostgreSQL 16",
+      "events": "Kafka (direct publish for batch audit, Section 16 AT-3)",
+      "external_mock": "Mock Service (batch quotes, PDF/S3, clearing view, regulatory report)"
+    },
+    "existing_patterns": [
+      "Chunk-oriented Spring Batch jobs (Section 6.4)",
+      "Weighted-average-cost maths (Section 15.1)",
+      "Sole-writer audit principle: batch emits events, AuditLogConsumer writes audit_log"
+    ],
+    "integration_points": [
+      "Orders, positions, transactions, accounts tables (shared DB, Section 16 AT-1)",
+      "portfolio_snapshots consumed by BE-4 portfolio views",
+      "Mock Service batch quotes, PDF/S3, clearing status, and regulatory endpoints"
+    ],
+    "deployment_constraints": [
+      "batch-service uses JDBC readers/writers and does not import api-service JPA entities (Section 16 AVOID-2)",
+      "Runs within the batch-service memory budget on the 16 GB machine"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "batch-service",
+        "notes": "Batch jobs in /batch-service; PDF/S3, clearing view, and regulatory report mocks in /mock-service. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.4 (Batch), Section 15.1, Section 15.6 (crons), Section 16 (AT-1, AT-3, AT-4, AVOID-1/2/7)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for job definitions, scheduling, and batch antipattern guardrails."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Overlapping jobs corrupt shared tables (positions/orders) if a job overruns its window.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Enforce the concurrent-execution guard (FR-5) and chain valuation after settlement.",
+      "trigger": "A running-instance check finds settlement active when valuation starts.",
+      "contingency": "Abort the second job and alert; add locking on affected rows."
+    },
+    {
+      "id": "R-2",
+      "description": "Batch audit events published directly to Kafka are lost during a broker outage.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Use acks=all with retries and alert on ERROR publish failures; reconciliation surfaces gaps (Section 16 AT-3).",
+      "trigger": "ERROR logs for failed batch audit publishes.",
+      "contingency": "Introduce batch_audit_outbox (Phase 2 exit) for durable batch audit delivery."
+    },
+    {
+      "id": "R-3",
+      "description": "Valuation issues per-position HTTP calls, blowing the job runtime.",
+      "probability": "low",
+      "impact": "medium",
+      "mitigation": "Use the Mock Service batch quote endpoint (FR-7).",
+      "trigger": "Job runtime scales with position count rather than chunk count.",
+      "contingency": "Cache prices per run and switch fully to batch lookups."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Filled orders, positions, transactions, and the settled flag lifecycle.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-3",
+        "blocking": true
+      },
+      {
+        "description": "End-of-day prices from the security/market-data capability.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-5",
+        "blocking": true
+      },
+      {
+        "description": "Event and audit infrastructure for batch audit events.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-7",
+        "blocking": true
+      },
+      {
+        "description": "mock-service project scaffold (this epic implements its own endpoints within it)",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": false
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "Filled trades are settled exactly once at end of day.",
+    "Every funded account has an end-of-day snapshot and revalued positions.",
+    "Account statements are generated and retrievable per period.",
+    "Internal records are reconciled against clearing with discrepancies recorded and the regulatory report submitted.",
+    "End-of-day jobs never run concurrently against shared data and emit their audit events."
+  ],
+  "story_outline": [
+    { "title": "End-of-day settlement job", "fr_refs": ["FR-1", "FR-6"] },
+    { "title": "Portfolio valuation and snapshot job", "fr_refs": ["FR-2", "FR-7"] },
+    { "title": "Statement generation job", "fr_refs": ["FR-3"] },
+    { "title": "Reconciliation and regulatory report job", "fr_refs": ["FR-4"] },
+    { "title": "Concurrent-execution guard and scheduling", "fr_refs": ["FR-5", "FR-8"] },
+    { "title": "Author snapshots, statements, and batch-schema migrations", "fr_refs": ["FR-9"] },
+    { "title": "Implement Mock Service statement/clearing-view/regulatory endpoints", "fr_refs": ["FR-10"] }
+  ]
+}

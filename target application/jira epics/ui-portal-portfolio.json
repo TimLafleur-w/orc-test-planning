@@ -1,0 +1,246 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-10",
+  "slug": "ui-portal-portfolio",
+  "title": "UI Portal Portfolio — Portfolio View, Transaction History & Statements",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge UI",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "An investor can trade through the portal but cannot see the results of their activity in the UI. There is no screen to view holdings and performance, no history of transactions, and no way to access periodic statements. Without these views, investors cannot understand their position, review past activity, or retrieve records.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Show investors their holdings and performance.",
+      "success_measure": "The portfolio view displays total value, day change, each position with unrealised P&L, and a performance chart, clearly indicating data staleness via valuedAt.",
+      "measurement_method": "E2E asserting portfolio summary, positions with P&L, and the performance chart render from API data."
+    },
+    {
+      "id": "G-2",
+      "goal": "Let investors review transaction history.",
+      "success_measure": "Transaction history is paginated and filterable by type and date range, with filters applied server-side so results are complete across pages.",
+      "measurement_method": "E2E asserting server-side type/date filtering and correct pagination."
+    },
+    {
+      "id": "G-3",
+      "goal": "Let investors access statements.",
+      "success_measure": "Investors can list statements and download a statement via its retrieval endpoint.",
+      "measurement_method": "E2E asserting the statements list renders and a download is initiated."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "See holdings and performance, review transactions, and download statements.",
+      "pain_point": "Without portfolio, history, and statement views the investor cannot assess or document their activity."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Implement the portfolio view showing total account value, day change, and each position with quantity, average cost, current value, and unrealised P&L / P&L percent from the portfolio API, per Sections 6.6 and 15.1.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Implement a portfolio performance chart from the snapshot-based performance series (Recharts), with a clear empty/staleness state driven by valuedAt per Section 16 AT-4.",
+      "priority": "Should",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Implement a paginated transaction history table using the pagination and sort parameters in Section 15.2.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Implement transaction filtering by type and date range as server-side query parameters so pagination is correct over the filtered set, per Section 16 FX-1.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Implement a statements page listing available statements and initiating a download via the statement retrieval endpoint (redirect to presigned URL) per Section 15.3.",
+      "priority": "Must",
+      "source": ["G-3"]
+    }
+  ],
+  "non_functional_requirements": {
+    "accessibility": [
+      "Tables and charts provide accessible labels; the transaction table is navigable by keyboard."
+    ],
+    "performance": [
+      "History and portfolio views use server-side pagination and filtering to avoid loading unbounded data."
+    ],
+    "observability": [
+      "The UI surfaces valuedAt so investors understand when portfolio figures were last valued."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Portfolio view shows holdings and P&L",
+      "given": "an authenticated investor with positions",
+      "when": "they open the portfolio view",
+      "then": ["total value and day change are shown", "each position shows quantity, average cost, current value, and unrealised P&L / P&L percent"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Performance chart with staleness indication",
+      "given": "an account with daily snapshots",
+      "when": "the portfolio view renders",
+      "then": ["a performance chart is displayed from the snapshot series", "a valuedAt/staleness indicator is shown"],
+      "and": ["when no snapshots exist yet, an explicit empty state is shown instead of an error"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-4",
+      "scenario": "Transaction filtering is server-side and complete",
+      "given": "an investor with more transactions than one page",
+      "when": "they filter by type and date range",
+      "then": ["the results reflect the filter across all pages", "pagination is correct over the filtered set"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-3",
+      "scenario": "Transaction history is paginated",
+      "given": "an investor with multiple pages of transactions",
+      "when": "they page through the history",
+      "then": ["each page shows the requested page size in the requested sort order"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-5",
+      "scenario": "Download a statement",
+      "given": "an investor with generated statements",
+      "when": "they select a statement to download",
+      "then": ["the statements list renders", "the download is initiated via the retrieval endpoint"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Portfolio view with total value, day change, and positions with P&L",
+      "Performance chart from snapshot series with staleness/empty state",
+      "Paginated transaction history",
+      "Server-side transaction filtering by type and date range",
+      "Statements list and download"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Client-side filtering of transactions",
+        "rationale": "Filtering must be server-side for correct pagination per Section 16 FX-1."
+      },
+      {
+        "item": "Tax documents and cost-basis reports",
+        "rationale": "Only periodic account statements are in v1 scope."
+      },
+      {
+        "item": "Exporting portfolio/history to CSV/Excel",
+        "rationale": "Not part of the v1 initial feature set."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "language": "TypeScript 5.x",
+      "framework": "React 18",
+      "ui": "shadcn/ui + Tailwind CSS",
+      "charts": "Recharts",
+      "state": "Zustand + TanStack Query",
+      "build": "Vite 5.x"
+    },
+    "existing_patterns": [
+      "App shell, routing, and auth client from BE-8",
+      "Server-side pagination, sorting, and filtering (Section 15.2, Section 16 FX-1)",
+      "Staleness indication via valuedAt (Section 16 AT-4)"
+    ],
+    "integration_points": [
+      "Portfolio and positions API (BE-4)",
+      "Transactions API (BE-2/BE-3 ledger)",
+      "Statements retrieval endpoint (BE-6)"
+    ],
+    "deployment_constraints": [
+      "Runs within the Nginx-served UI container in the local stack"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "ui",
+        "notes": "Portfolio UI (portfolio view, transaction history, statements) in /ui. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.5/6.6, Section 15.1, Section 15.2, Section 15.3, Section 16 (FX-1, AT-4)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for portfolio/history/statements UX and server-side filtering."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Performance chart and day change are empty until BE-6 valuation has produced snapshots, appearing broken to users.",
+      "probability": "high",
+      "impact": "low",
+      "mitigation": "Render an explicit empty/staleness state keyed on valuedAt; ensure BE-6 runs before this epic is validated end-to-end.",
+      "trigger": "No snapshots exist for the account at render time.",
+      "contingency": "Show a friendly 'awaiting first end-of-day valuation' state."
+    },
+    {
+      "id": "R-2",
+      "description": "Transaction filtering implemented client-side would show incomplete pages.",
+      "probability": "low",
+      "impact": "medium",
+      "mitigation": "Enforce server-side filtering via query parameters per Section 16 FX-1.",
+      "trigger": "Filtered pages show fewer than the page size while more matches exist.",
+      "contingency": "Move any client-side filter logic to API query parameters."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Core UI shell, routing, and authenticated API client.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-8",
+        "blocking": true
+      },
+      {
+        "description": "Portfolio and positions API.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-4",
+        "blocking": true
+      },
+      {
+        "description": "Statements produced and retrievable via batch processing.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-6",
+        "blocking": true
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "An investor can view holdings, day change, and per-position unrealised P&L.",
+    "An investor can see a performance chart with a clear staleness/empty state.",
+    "An investor can review paginated transaction history filtered server-side by type and date.",
+    "An investor can list and download account statements.",
+    "Portfolio journeys pass in the Playwright E2E suite against the local stack."
+  ],
+  "story_outline": [
+    { "title": "Portfolio view with positions and P&L", "fr_refs": ["FR-1"] },
+    { "title": "Performance chart with staleness state", "fr_refs": ["FR-2"] },
+    { "title": "Paginated transaction history", "fr_refs": ["FR-3"] },
+    { "title": "Server-side transaction filtering", "fr_refs": ["FR-4"] },
+    { "title": "Statements list and download", "fr_refs": ["FR-5"] }
+  ]
+}

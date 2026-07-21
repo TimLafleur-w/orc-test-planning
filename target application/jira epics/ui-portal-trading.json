@@ -1,0 +1,244 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-9",
+  "slug": "ui-portal-trading",
+  "title": "UI Portal Trading — Order Entry, Order Book & Security Search",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge UI",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "An investor can sign in and fund an account through the portal but still cannot trade from the UI. There is no way to find a security, enter a market or limit order, or watch an order progress through its lifecycle on screen. Without trading screens, the core value of the product is unreachable to a real user.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Let an investor find and select securities quickly.",
+      "success_measure": "A typeahead search returns matching securities by ticker or name and lets the investor select one to trade.",
+      "measurement_method": "E2E asserting search results and selection populate the order form."
+    },
+    {
+      "id": "G-2",
+      "goal": "Let an investor place market and limit orders with clear feedback.",
+      "success_measure": "The order form supports market and limit buy/sell with client-side validation matching Section 15.2 and shows submission results including rejections mapped from RFC-7807.",
+      "measurement_method": "E2E covering a successful market buy and a rejected order (insufficient funds) with correct messaging."
+    },
+    {
+      "id": "G-3",
+      "goal": "Let an investor track and cancel orders.",
+      "success_measure": "An order book view lists orders with live-updating status and allows cancelling working orders, disabling cancel for terminal orders.",
+      "measurement_method": "E2E asserting an order transitions to FILLED and a working order can be cancelled while a terminal one cannot."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "Search a security, place an order, and watch it fill or reject.",
+      "pain_point": "Without trading screens the investor cannot actually buy or sell."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Implement a security search/typeahead component querying the securities search API and showing current price, feeding selection into the order form, per Section 6.6.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Implement an order entry form supporting market and limit, buy and sell, with React Hook Form + Zod validation that mirrors the server rules (Section 15.2): quantity is an integer 1–10,000; limitPrice is required when type=LIMIT and must be absent when type=MARKET, within $0.01–$9,999,999.99 (2 decimal places). Show an estimated cost (quantity × price).",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Submit orders to the orders API, handle the 202 accepted response, and surface rejections (insufficient-funds, position-insufficient, account-not-active) mapped from RFC-7807 per Section 15.3.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Implement an order book view listing the investor's orders with status, using TanStack Query polling/refetch on a 5-second interval so fills and rejections appear without a manual reload.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Allow cancelling PENDING/OPEN orders from the order book and disable/deny cancel for terminal orders, reflecting the 409 terminal-state response, per Section 15.3.",
+      "priority": "Must",
+      "source": ["G-3"]
+    }
+  ],
+  "non_functional_requirements": {
+    "accessibility": [
+      "The order form is keyboard-accessible with labelled inputs, and destructive actions (cancel) require clear affordance."
+    ],
+    "performance": [
+      "Order status updates appear via polling/refetch every 5 seconds, which bounds API load while keeping status current."
+    ],
+    "security": [
+      "All trading actions use the authenticated session; the UI never exposes another user's orders."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Search and select a security",
+      "given": "an authenticated investor on the trading screen",
+      "when": "they type a partial ticker or company name",
+      "then": ["matching securities with current price are listed", "selecting one populates the order form"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Place a market buy",
+      "given": "a selected security and sufficient buying power",
+      "when": "the investor submits a market buy for a valid quantity",
+      "then": ["the order is accepted and appears in the order book as PENDING"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-3",
+      "scenario": "Rejected order shows a clear reason",
+      "given": "insufficient buying power for the requested order",
+      "when": "the investor submits the order",
+      "then": ["an insufficient-funds message is shown", "no order is added to the order book"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-4",
+      "scenario": "Order status updates live",
+      "given": "a PENDING order that clears",
+      "when": "the fill is processed by the backend",
+      "then": ["the order book reflects the order as FILLED without a manual reload"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-5",
+      "scenario": "Cancel a working order",
+      "given": "a working order in the order book",
+      "when": "the investor cancels it",
+      "then": ["the order shows CANCELLED"],
+      "and": ["cancel is unavailable for terminal orders"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Security search/typeahead feeding the order form",
+      "Market and limit order entry with client-side validation and estimated cost",
+      "Order submission with RFC-7807 rejection handling",
+      "Order book view with live-updating status",
+      "Cancel working orders with terminal-state handling"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Advanced order types and charts on the trade ticket",
+        "rationale": "v1 supports only market and limit orders (BE-3 scope)."
+      },
+      {
+        "item": "Real-time streaming quotes in the UI via websockets/SSE",
+        "rationale": "v1 uses bounded polling/refetch; live quote streaming to the browser is out of scope."
+      },
+      {
+        "item": "Watchlists and price alerts",
+        "rationale": "Not part of the v1 initial feature set."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "language": "TypeScript 5.x",
+      "framework": "React 18",
+      "ui": "shadcn/ui + Tailwind CSS",
+      "state": "Zustand + TanStack Query",
+      "forms": "React Hook Form + Zod",
+      "build": "Vite 5.x"
+    },
+    "existing_patterns": [
+      "App shell, routing, and auth handling from BE-8",
+      "RFC-7807 error mapping (Section 15.3)",
+      "TanStack Query polling/refetch for eventually-consistent order status"
+    ],
+    "integration_points": [
+      "Securities search API (BE-5)",
+      "Orders API: place, list, get, cancel (BE-3)"
+    ],
+    "deployment_constraints": [
+      "Runs within the Nginx-served UI container in the local stack"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "ui",
+        "notes": "Trading UI (security search, order entry, order book) in /ui. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.5/6.6 (UI/UX), Section 15.2 (validation), Section 15.3 (errors)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for trading UX, order validation, and error handling."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Order status is eventually consistent (async clearing), so the UI may briefly show stale status and appear broken.",
+      "probability": "medium",
+      "impact": "low",
+      "mitigation": "Use TanStack Query polling with clear pending states and optimistic-but-verified updates.",
+      "trigger": "Users report an order stuck as PENDING in the UI after it filled.",
+      "contingency": "Add a manual refresh affordance and tune the poll interval."
+    },
+    {
+      "id": "R-2",
+      "description": "Client-side order validation diverges from backend business rules, allowing submissions that always fail.",
+      "probability": "medium",
+      "impact": "low",
+      "mitigation": "Base Zod rules on Section 15.2 and treat backend RFC-7807 responses as authoritative.",
+      "trigger": "Orders accepted by the form are consistently rejected by the API.",
+      "contingency": "Tighten client rules to match server constraints."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Core UI shell, routing, and authenticated API client.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-8",
+        "blocking": true
+      },
+      {
+        "description": "Orders API (place, list, cancel, status).",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-3",
+        "blocking": true
+      },
+      {
+        "description": "Securities search API and prices.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-5",
+        "blocking": true
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "An investor can search for and select a security to trade.",
+    "An investor can place market and limit orders with clear validation and rejection feedback.",
+    "An investor can watch orders progress and see fills reflected without a manual reload.",
+    "An investor can cancel working orders and is prevented from cancelling terminal ones.",
+    "Trading journeys pass in the Playwright E2E suite against the local stack."
+  ],
+  "story_outline": [
+    { "title": "Security search / typeahead", "fr_refs": ["FR-1"] },
+    { "title": "Order entry form with validation", "fr_refs": ["FR-2", "FR-3"] },
+    { "title": "Order book view with live status", "fr_refs": ["FR-4"] },
+    { "title": "Cancel order from the order book", "fr_refs": ["FR-5"] }
+  ]
+}

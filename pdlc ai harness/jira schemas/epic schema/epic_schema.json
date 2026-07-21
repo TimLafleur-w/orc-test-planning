@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orc-test.epic/v1",
+  "title": "orc-test Epic Schema",
+  "description": "Canonical epic document consumed by the agent pipeline (spec → architect → stories → tasks → dev)",
+  "type": "object",
+  "required": [
+    "schema",
+    "epic_id",
+    "slug",
+    "title",
+    "type",
+    "status",
+    "owner",
+    "problem_statement",
+    "goals",
+    "personas",
+    "functional_requirements",
+    "non_functional_requirements",
+    "acceptance_criteria",
+    "scope",
+    "risks",
+    "dependencies",
+    "definition_of_done"
+  ],
+  "additionalProperties": false,
+  "properties": {
+
+    "schema": {
+      "const": "orc-test.epic/v1"
+    },
+
+    "epic_id": {
+      "type": "string",
+      "description": "JIRA issue key",
+      "examples": ["PROJ-123"]
+    },
+
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Kebab-case key used as the folder/file name by all agents",
+      "examples": ["user-mgmt-navigation"]
+    },
+
+    "title": { "type": "string", "minLength": 5 },
+
+    "type": {
+      "type": "string",
+      "enum": ["feature", "platform", "enabler", "spike"]
+    },
+
+    "status": {
+      "type": "string",
+      "enum": ["draft", "in-review", "approved", "in-progress", "done"]
+    },
+
+    "owner": {
+      "type": "string",
+      "description": "Email or username of the TPM/PM who owns this epic"
+    },
+
+    "team": { "type": "string" },
+
+    "target_quarter": {
+      "type": "string",
+      "pattern": "^Q[1-4]-\\d{4}$",
+      "examples": ["Q3-2026"]
+    },
+
+    "jira_url": {
+      "type": "string",
+      "format": "uri"
+    },
+
+    "problem_statement": {
+      "type": "string",
+      "description": "Markdown string. 2-4 sentences: the concrete user pain or business gap. No solutions.",
+      "minLength": 50
+    },
+
+    "goals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "goal", "success_measure", "measurement_method"],
+        "additionalProperties": false,
+        "properties": {
+          "id":                 { "type": "string", "pattern": "^G-\\d+$" },
+          "goal":               { "type": "string" },
+          "success_measure":    { "type": "string", "description": "Measurable threshold — no vague adjectives" },
+          "measurement_method": { "type": "string" }
+        }
+      }
+    },
+
+    "personas": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Names used verbatim by story writer — no new personas may be invented downstream",
+      "items": {
+        "type": "object",
+        "required": ["name", "role", "goal"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "goal": { "type": "string" },
+          "pain_point": { "type": "string" }
+        }
+      }
+    },
+
+    "functional_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "priority", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "id":          { "type": "string", "pattern": "^FR-\\d+$" },
+          "description": { "type": "string" },
+          "priority":    { "type": "string", "enum": ["Must", "Should", "Could", "Wont"] },
+          "source":      {
+            "type": "array",
+            "description": "Goal IDs and/or stakeholder refs — required for spec writer traceability",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        }
+      }
+    },
+
+    "non_functional_requirements": {
+      "type": "object",
+      "description": "Measurable targets by category. Architect treats these as hard constraints.",
+      "additionalProperties": false,
+      "properties": {
+        "performance":   { "type": "array", "items": { "type": "string" } },
+        "accessibility": { "type": "array", "items": { "type": "string" } },
+        "security":      { "type": "array", "items": { "type": "string" } },
+        "scalability":   { "type": "array", "items": { "type": "string" } },
+        "availability":  { "type": "array", "items": { "type": "string" } },
+        "compliance":    { "type": "array", "items": { "type": "string" } },
+        "observability": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Structured Gherkin — directly consumable by story writer and test writer agents",
+      "items": {
+        "type": "object",
+        "required": ["id", "fr_ref", "scenario", "given", "when", "then"],
+        "additionalProperties": false,
+        "properties": {
+          "id":       { "type": "string", "pattern": "^AC-\\d+$" },
+          "fr_ref":   { "type": "string", "pattern": "^FR-\\d+$", "description": "The FR this AC validates" },
+          "scenario": { "type": "string", "description": "Human-readable scenario name" },
+          "given":    { "type": "string" },
+          "when":     { "type": "string" },
+          "then":     { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "and":      { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "scope": {
+      "type": "object",
+      "required": ["in_scope", "out_of_scope"],
+      "additionalProperties": false,
+      "properties": {
+        "in_scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "out_of_scope": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Each entry must state rationale — epic critic flags silent omissions",
+          "items": {
+            "type": "object",
+            "required": ["item", "rationale"],
+            "additionalProperties": false,
+            "properties": {
+              "item":      { "type": "string" },
+              "rationale": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "technical_context": {
+      "type": "object",
+      "description": "Required by architect. All fields optional but absence is noted as a finding.",
+      "additionalProperties": false,
+      "properties": {
+        "tech_stack": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "existing_patterns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "integration_points": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "deployment_constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "references": {
+      "type": "object",
+      "description": "Typed artifact links — each agent type filters to its relevant keys",
+      "additionalProperties": false,
+      "properties": {
+        "figma":                 { "$ref": "#/$defs/ref_list" },
+        "architecture_diagrams": { "$ref": "#/$defs/ref_list" },
+        "github_repos":          { "$ref": "#/$defs/github_ref_list" },
+        "spec_documents":        { "$ref": "#/$defs/ref_list" },
+        "examples":              { "$ref": "#/$defs/ref_list" },
+        "existing_apis":         { "$ref": "#/$defs/ref_list" }
+      }
+    },
+
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "probability", "impact", "mitigation", "trigger", "contingency"],
+        "additionalProperties": false,
+        "properties": {
+          "id":          { "type": "string", "pattern": "^R-\\d+$" },
+          "description": { "type": "string" },
+          "probability": { "type": "string", "enum": ["low", "medium", "high"] },
+          "impact":      { "type": "string", "enum": ["low", "medium", "high"] },
+          "mitigation":  { "type": "string" },
+          "trigger":     { "type": "string" },
+          "contingency": { "type": "string" }
+        }
+      }
+    },
+
+    "dependencies": {
+      "type": "object",
+      "required": ["internal", "external"],
+      "additionalProperties": false,
+      "properties": {
+        "internal": { "$ref": "#/$defs/dependency_list" },
+        "external": { "$ref": "#/$defs/dependency_list" }
+      }
+    },
+
+    "definition_of_done": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Business outcome criteria — not engineering checklists",
+      "items": { "type": "string" }
+    },
+
+    "story_outline": {
+      "type": "array",
+      "description": "Optional rough story titles — orientation hint for story writer agent, not final stories",
+      "items": {
+        "type": "object",
+        "required": ["title", "fr_refs"],
+        "additionalProperties": false,
+        "properties": {
+          "title":   { "type": "string" },
+          "fr_refs": { "type": "array", "items": { "type": "string" } },
+          "notes":   { "type": "string" }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "ref_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string" },
+          "url":   { "type": "string", "format": "uri" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "github_ref_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["repo"],
+        "additionalProperties": false,
+        "properties": {
+          "repo":   { "type": "string", "description": "org/repo-name" },
+          "branch": { "type": "string", "default": "main" },
+          "path":   { "type": "string" },
+          "notes":  { "type": "string" }
+        }
+      }
+    },
+    "dependency_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "owner", "blocking"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "owner":       { "type": "string" },
+          "epic":        { "type": "string", "description": "JIRA key of the dependency" },
+          "blocking":    { "type": "boolean" },
+          "eta":         { "type": "string" }
+        }
+      }
+    }
+  }
+}

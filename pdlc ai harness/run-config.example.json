@@ -1,0 +1,24 @@
+{
+  "_about": "PDLC AI-Harness run configuration. Copy to run-config.json and edit per contributor. Non-secret values only — secrets (GITHUB_TOKEN, JIRA_API_TOKEN) come from .env and must never be committed. Values here are overridden by matching environment variables if set.",
+
+  "github": {
+    "owner": "TimLafleur-w",
+    "repo": "brokeredge",
+    "defaultBranch": "main",
+    "visibility": "private",
+    "mode": "shared",
+    "createIfMissing": true,
+    "_mode_help": "'shared' = run against the main repo (owner=TimLafleur-w) using your contributor access; the repo already exists so BE-11 skips creation. 'own' = set owner to your own GitHub username to create and run against your own copy.",
+    "_token_help": "GITHUB_TOKEN (classic PAT with 'repo' scope) is read from .env, never stored here.",
+    "_env_overrides": ["GITHUB_OWNER", "GITHUB_REPO", "GITHUB_DEFAULT_BRANCH"]
+  },
+
+  "jira": {
+    "baseUrl": "https://your-site.atlassian.net",
+    "projectKey": "BE",
+    "email": "you@example.com",
+    "_key_help": "projectKey maps the canonical design-time epic keys (BE-1..BE-12) into your own Jira project. Change it if your project uses a different key; the canonical BE-* identifiers inside the epic files stay as-is and are remapped on import.",
+    "_token_help": "JIRA_API_TOKEN is read from .env, never stored here.",
+    "_env_overrides": ["JIRA_BASE_URL", "JIRA_PROJECT_KEY", "JIRA_EMAIL"]
+  }
+}

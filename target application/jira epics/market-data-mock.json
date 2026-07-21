@@ -1,0 +1,245 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-5",
+  "slug": "market-data-mock",
+  "title": "Market Data (Mock) — Security Catalogue, Quote Feed & Search",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Core",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "An investor cannot decide what to trade, and the trading and valuation capabilities cannot price anything, because BrokerEdge has no catalogue of tradable securities and no source of prices. There is no way to browse or search securities and no live quote feed to value orders and positions. Without a market-data foundation, order placement and portfolio valuation have no prices to work with.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Provide a deterministic catalogue of tradable securities.",
+      "success_measure": "The catalogue contains exactly the 20 seed securities defined in Section 15.7, each retrievable by ticker with its name, asset class, and current price.",
+      "measurement_method": "Integration test asserting 20 securities are present with the exact seed tickers and attributes."
+    },
+    {
+      "id": "G-2",
+      "goal": "Provide a continuously updating mock quote feed.",
+      "success_measure": "Quote updates are published to the market-data topic on a fixed 5-second interval using the bounded random-walk algorithm in Section 15.8, with prices never dropping below 0.01.",
+      "measurement_method": "Consumer test observing QuoteUpdated events at the expected cadence with prices within bounds."
+    },
+    {
+      "id": "G-3",
+      "goal": "Let an investor find securities quickly.",
+      "success_measure": "Security search returns matches by ticker or company name suitable for typeahead, with paginated, sortable catalogue listing.",
+      "measurement_method": "API test of search matches and pagination/sort parameters per Section 15.2."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "Browse and search available securities and see current prices before trading.",
+      "pain_point": "Cannot choose what to buy without a searchable list and up-to-date prices."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Seed exactly the 20 securities from Section 15.7 — the tickers AAPL, MSFT, GOOGL, AMZN, META, TSLA, NVDA, JPM, JNJ, WMT, BAC, PG, XOM, HD, DIS, SPY, QQQ, VTI, GLD, BRK-B — via a repeatable Flyway migration (R__seed_securities.sql) with ticker, name, asset class, seed price, and active flag.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Provide GET /api/v1/securities (paginated, sortable per Section 15.2) and GET /api/v1/securities/{ticker} returning security details including current mock price; unknown ticker returns 404 security-not-found.",
+      "priority": "Must",
+      "source": ["G-1", "G-3"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Implement MockQuoteGenerator as a scheduled component publishing QuoteUpdated events to brokerEdge.market-data every 5 seconds using the Gaussian random-walk algorithm (sigma 0.2%, floor 0.01) in Section 15.8; scheduling disabled under the test profile.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Provide security search by ticker or company name suitable for typeahead (case-insensitive prefix/substring match), returning a bounded result set of at most 20 matches.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Expose a batch price lookup on the Mock Service (POST /market-data/quotes/batch) so downstream valuation avoids per-item HTTP calls, per Section 16 AVOID-1.",
+      "priority": "Should",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Author and own the Flyway migrations for this epic: `V003__create_securities.sql` (securities table, unique index on ticker) and the repeatable `R__seed_securities.sql` seeding the 20 securities in Section 15.7, per Section 6.2.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Own and implement the Mock Service quote endpoints in /mock-service: the single-ticker quote lookup and, together with FR-5, the batch quote lookup, per Section 10.",
+      "priority": "Should",
+      "source": ["G-2"]
+    }
+  ],
+  "non_functional_requirements": {
+    "performance": [
+      "Quote generation runs on a fixed 5-second interval without unbounded growth in memory or backlog.",
+      "A batch quote lookup exists so consumers never issue one HTTP call per security (Section 16 AVOID-1)."
+    ],
+    "observability": [
+      "Quote publishing cadence and last-tick prices are observable for debugging."
+    ],
+    "scalability": [
+      "The quote generator holds prices in a bounded in-memory map keyed by ticker (Section 15.8)."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Catalogue is seeded deterministically",
+      "given": "a freshly migrated database",
+      "when": "the security catalogue is queried",
+      "then": ["exactly 20 securities exist matching the Section 15.7 seed list — the tickers AAPL, MSFT, GOOGL, AMZN, META, TSLA, NVDA, JPM, JNJ, WMT, BAC, PG, XOM, HD, DIS, SPY, QQQ, VTI, GLD, BRK-B", "each has a ticker, name, asset class, and price"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Retrieve a security by ticker",
+      "given": "the seeded catalogue",
+      "when": "GET /api/v1/securities/AAPL is called",
+      "then": ["the response is 200 with the security details and current price"],
+      "and": ["an unknown ticker returns 404 security-not-found"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-3",
+      "scenario": "Quote feed publishes on schedule within bounds",
+      "given": "the running application outside the test profile",
+      "when": "the quote generator runs",
+      "then": ["QuoteUpdated events are published to brokerEdge.market-data every 5 seconds", "no published price is below 0.01"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-4",
+      "scenario": "Search supports typeahead",
+      "given": "the seeded catalogue",
+      "when": "a search is performed for a partial ticker or company name",
+      "then": ["matching securities are returned case-insensitively in a bounded result set"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Deterministic 20-security seed catalogue via repeatable Flyway migration",
+      "Security list (paginated/sortable) and detail-by-ticker endpoints",
+      "MockQuoteGenerator random-walk quote feed to the market-data topic",
+      "Security search / typeahead by ticker and name",
+      "Mock Service batch quote lookup endpoint"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Real market-data provider integration",
+        "rationale": "All prices are simulated in v1; no external feed is used."
+      },
+      {
+        "item": "Order book depth, level-2 data, and historical candles",
+        "rationale": "Out of v1 scope; only a single current price per security is modelled."
+      },
+      {
+        "item": "Persisting every quote tick to the database",
+        "rationale": "Ticks are transient on the event bus; only end-of-day prices are persisted by BE-6 valuation."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "framework": "Spring Boot 3.x",
+      "scheduling": "Spring @Scheduled",
+      "events": "Kafka (brokerEdge.market-data)",
+      "database": "PostgreSQL 16",
+      "migrations": "Flyway 10.x (repeatable R__ migration)",
+      "mock_service": "Node.js/Express quote endpoints"
+    },
+    "existing_patterns": [
+      "Bounded random-walk quote generation (Section 15.8)",
+      "MockQuoteGenerator publishing via KafkaEventPublisher (Section 6.1)"
+    ],
+    "integration_points": [
+      "brokerEdge.market-data topic consumed by valuation and UI",
+      "Mock Service quote endpoints (single and batch)"
+    ],
+    "deployment_constraints": [
+      "Quote generator holds prices in memory; scheduling disabled in the test profile"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "api-service",
+        "notes": "Security catalogue, MockQuoteGenerator, and search in /api-service; quote endpoints in /mock-service. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.1, Section 15.7 (Seed Data), Section 15.8 (MockQuoteGenerator), Section 16 AVOID-1",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for the seed list, quote algorithm, and batch lookup rule."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "The 5-second quote publishing loop adds memory or CPU pressure within the 16 GB budget.",
+      "probability": "low",
+      "impact": "medium",
+      "mitigation": "Keep prices in a bounded in-memory map and publish compact envelopes; disable in the test profile.",
+      "trigger": "Observed memory growth or CPU spikes attributable to quote publishing.",
+      "contingency": "Increase the interval or reduce the security set for constrained environments."
+    },
+    {
+      "id": "R-2",
+      "description": "Quote source ambiguity: generator in-memory prices versus Mock Service static prices diverge and confuse consumers.",
+      "probability": "medium",
+      "impact": "low",
+      "mitigation": "Document the generator as the driver of the random walk and the Mock Service as a static/admin-controlled source per Section 15.8.",
+      "trigger": "Inconsistent prices reported between the feed and a batch lookup in tests.",
+      "contingency": "Sync the generator's initial prices from the Mock Service at startup as specified."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Kafka topics and event infrastructure for market-data publishing.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-7",
+        "blocking": true
+      },
+      {
+        "description": "Runnable service skeleton and database stack.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": true
+      }
+    ],
+    "external": [
+    ]
+  },
+  "definition_of_done": [
+    "An investor can browse and search the full seeded security catalogue.",
+    "Each security is retrievable by ticker with a current price.",
+    "A live mock quote feed publishes price updates at the defined cadence within bounds.",
+    "Downstream consumers can fetch prices in batch without per-security calls."
+  ],
+  "story_outline": [
+    { "title": "Seed 20-security catalogue via repeatable migration", "fr_refs": ["FR-1"] },
+    { "title": "Security list and detail endpoints", "fr_refs": ["FR-2"] },
+    { "title": "MockQuoteGenerator random-walk feed", "fr_refs": ["FR-3"] },
+    { "title": "Security search / typeahead", "fr_refs": ["FR-4"] },
+    { "title": "Mock Service batch quote lookup", "fr_refs": ["FR-5"] },
+    { "title": "Author securities migration and seed 20 securities", "fr_refs": ["FR-6"] },
+    { "title": "Implement Mock Service quote endpoints", "fr_refs": ["FR-7"] }
+  ]
+}

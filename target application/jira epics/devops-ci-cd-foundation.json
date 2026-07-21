@@ -1,0 +1,360 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-11",
+  "slug": "devops-ci-cd-foundation",
+  "title": "DevOps & CI/CD Foundation — Repo, Build, Containerisation & Local Orchestration",
+  "type": "platform",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Platform",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "BrokerEdge is a greenfield system with no source repository yet, composed of multiple independently buildable services (REST API, Batch, UI, and a Node.js Mock Service) that must compile, containerise, and run together end-to-end on a single 16 GB developer machine. There is currently no version-controlled monorepo, no reproducible multi-module build, no container packaging, no continuous-integration gate, and no one-command local environment. Until this foundation exists, no feature epic can be implemented, integrated, or verified, and every downstream agent lacks a repository and running target to build against.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Establish a reproducible multi-module Maven build for all backend services.",
+      "success_measure": "A clean checkout builds all backend modules with a single `mvn clean install` in under 5 minutes with zero manual steps.",
+      "measurement_method": "CI build log timing and process exit code."
+    },
+    {
+      "id": "G-2",
+      "goal": "Provide a one-command local orchestration stack that fits the 16 GB constraint.",
+      "success_measure": "`docker compose up` starts api-service, batch-service, PostgreSQL, Kafka, Schema Registry, Mock Service, and the UI with total resident memory of the container stack at or below 2 GB, and all container health checks report healthy within 120 seconds.",
+      "measurement_method": "`docker stats` memory readings and `docker compose ps` health status captured after startup."
+    },
+    {
+      "id": "G-3",
+      "goal": "Enforce an automated CI quality gate on every change.",
+      "success_measure": "Every pull request runs lint, unit tests, and produces a build artifact; a failing stage marks the PR's required status check as failed so it is not merged (merge is gated by required-check policy, since a free-plan private repo cannot enforce server-side branch protection).",
+      "measurement_method": "Jenkins pipeline stage results and the PR commit status-check state."
+    },
+    {
+      "id": "G-4",
+      "goal": "Bootstrap the private GitHub monorepo that all epics build in.",
+      "success_measure": "A single private monorepo exists under the configured owner with the standard directory layout, the initial scaffold pushed to the default branch, and a documented branch-per-story workflow; re-running bootstrap does not create a duplicate repo.",
+      "measurement_method": "GitHub API confirms the repo exists and is private, contains the scaffold on the default branch, and a second bootstrap run is a no-op."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Sam",
+      "role": "BrokerEdge Engineer (full-stack developer / pipeline developer agent)",
+      "goal": "Build, test, run, and integrate the application on a reproducible pipeline, in a single monorepo, on a local environment.",
+      "pain_point": "Without a repository, a standard build, and a runnable local stack, every feature attempt starts from an inconsistent, non-reproducible baseline."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Provide a Maven multi-module project: a parent POM (`brokerEdge-parent`) aggregating `api-service` and `batch-service` modules, with the `mock-service` (Node) and `ui` (React) maintained as separate toolchains within the same monorepo. Dependency versions and plugin management are centralised in the parent POM per Section 15.5.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Produce OCI container images for api-service and batch-service using the Spring Boot / buildpacks (`spring-boot:build-image`) approach, and a container image for the Mock Service and the Nginx-served UI.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Provide a Docker Compose stack defining every service (api, batch, postgres, kafka in KRaft mode, schema-registry, mock-service, ui) with a per-container `mem_limit`, health checks, and correct startup dependency ordering per Section 7.2.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Provide a Jenkinsfile implementing the pipeline stages defined in Section 9: PR validation (lint, unit tests, dependency scan), integration test, and build & package, reporting results as PR commit status checks.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Provide a runnable Spring Boot application skeleton for api-service and batch-service, each exposing an Actuator health endpoint and wired for Flyway migration execution on startup.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Provide a Helm chart stub targeting the Phase 2 Kubernetes (EKS) deployment, containing templated Deployments and Services for api-service and batch-service.",
+      "priority": "Should",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Enforce that no secret value is committed to source control: provide `.gitignore` entries for env and local config files and a CI secret-scan step per Section 16 AVOID-4.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-8",
+      "description": "Idempotently create the private GitHub monorepo (`${GITHUB_OWNER}/${GITHUB_REPO}`, resolved from run-config) using a classic Personal Access Token (`GITHUB_TOKEN`) with `repo` scope: create the repo if it does not exist, initialise the standard directory layout (`/api-service`, `/batch-service`, `/mock-service`, `/ui`, `/deploy`, `/docs`, root `pom.xml`, `.gitignore`, `README`), and push the initial scaffold to the default branch `main`. This supports both contributor models with no code change: in shared mode the repo already exists (contributors have push access) so creation is skipped and the existing repo is used; in own mode the contributor's `${GITHUB_OWNER}` does not yet have the repo so it is created. Because a free-plan private repo cannot enforce server-side branch protection, document and rely on the required-CI-check + branch-per-story convention instead of protected branches.",
+      "priority": "Must",
+      "source": ["G-4"]
+    },
+    {
+      "id": "FR-9",
+      "description": "Commit the BrokerEdge design document into the monorepo at `/docs/BrokerEdge_Design_Document.md` as part of the initial scaffold, so every downstream agent can read the sections referenced by all epics (Section 6.2, 15.x, 16.x) from within a clone.",
+      "priority": "Must",
+      "source": ["G-4"]
+    },
+    {
+      "id": "FR-10",
+      "description": "Configure Flyway with out-of-order migrations enabled in the local, dev, and ci profiles, because epics are ingested in a different order than their migration version numbers (e.g. BE-7 owns V009 but is ingested before BE-1 which owns V001); CI provisions a fresh database per run. Per Sections 6.2 and 15.6.",
+      "priority": "Must",
+      "source": ["G-1"]
+    }
+  ],
+  "non_functional_requirements": {
+    "performance": [
+      "`mvn clean install` for all backend modules completes in under 5 minutes on the reference 16 GB machine.",
+      "`docker compose up` reaches all-healthy state within 120 seconds."
+    ],
+    "scalability": [
+      "Total container stack resident memory does not exceed 2 GB, leaving headroom for OS, IDE, and a Playwright browser on a 16 GB machine.",
+      "Each container declares an explicit `mem_limit` per the Section 7.2 memory budget."
+    ],
+    "availability": [
+      "Every service container exposes a health check that Docker Compose uses to gate dependent service startup."
+    ],
+    "observability": [
+      "api-service and batch-service expose `/actuator/health` and `/actuator/info` per Section 15.6."
+    ],
+    "security": [
+      "No secret (JWT_SECRET, DB_PASSWORD, API keys, or the GitHub PAT) is present in any committed file; the PAT is supplied only via a pipeline credential/environment variable.",
+      "The repository is created as private.",
+      "CI includes a secret-scanning step that fails the build on detected secrets."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Clean multi-module build succeeds from a fresh checkout",
+      "given": "a clean checkout of the repository on the reference machine with Java 21 and Maven 3.9 installed",
+      "when": "the engineer runs `mvn clean install` from the repository root",
+      "then": ["all backend modules compile and their unit tests pass", "the build exits with code 0 in under 5 minutes"],
+      "and": ["api-service and batch-service each produce a runnable Spring Boot jar"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-3",
+      "scenario": "Full stack starts locally within the memory budget",
+      "given": "built container images for all services",
+      "when": "the engineer runs `docker compose up`",
+      "then": ["all containers reach a healthy state within 120 seconds", "total container resident memory is at or below 2 GB"],
+      "and": ["postgres, kafka, and schema-registry become healthy before api-service and batch-service start"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-5",
+      "scenario": "Service skeletons expose a green health endpoint",
+      "given": "the running Docker Compose stack",
+      "when": "an HTTP GET is issued to `/actuator/health` on api-service and on batch-service",
+      "then": ["each returns HTTP 200 with status \"UP\""],
+      "and": ["Flyway reports the baseline migration state as current on startup"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-4",
+      "scenario": "CI fails the required check on a failing pull request",
+      "given": "a pull request that introduces a failing unit test",
+      "when": "the Jenkins pipeline runs against the pull request",
+      "then": ["the PR validation stage fails", "the PR's required CI status check is reported as failed and the branch-per-story policy directs that it must not be merged"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-7",
+      "scenario": "Secret scan prevents committed credentials",
+      "given": "a change that introduces a hardcoded secret value in a config file",
+      "when": "the CI secret-scan step runs",
+      "then": ["the build fails with a message identifying the offending file"]
+    },
+    {
+      "id": "AC-6",
+      "fr_ref": "FR-8",
+      "scenario": "Monorepo is created idempotently and privately",
+      "given": "a valid GitHub PAT with `repo` scope and a configured ${GITHUB_OWNER}",
+      "when": "the repository bootstrap runs",
+      "then": ["a private repo ${GITHUB_OWNER}/${GITHUB_REPO} exists with the standard layout and scaffold on `main`"],
+      "and": ["running bootstrap again does not create a duplicate repo or overwrite existing history"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Idempotent creation of the private GitHub monorepo and initial scaffold push (default branch `main`)",
+      "Standard monorepo directory layout (/api-service, /batch-service, /mock-service, /ui, /deploy, root pom.xml)",
+      "Branch-per-story workflow documentation (required-CI-check gating in lieu of server-side branch protection)",
+      "Maven parent POM and api-service / batch-service module POMs with centralised dependency management",
+      "Container images for api-service, batch-service, mock-service, and the Nginx-served UI",
+      "Docker Compose stack with per-container memory limits, health checks, and startup ordering",
+      "Jenkinsfile implementing PR validation, integration, and build/package stages reported as PR status checks",
+      "Runnable Spring Boot skeletons with Actuator health and Flyway baseline wiring",
+      "Helm chart stub for the Phase 2 Kubernetes target",
+      "Source-control secret hygiene (.gitignore + CI secret scan)"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Server-side branch protection / required-review enforcement",
+        "rationale": "A free-plan personal private repo cannot enforce branch protection; the pipeline relies on required CI status checks and the branch-per-story convention instead."
+      },
+      {
+        "item": "Multi-repo split (separate repos per service)",
+        "rationale": "A single monorepo is used per Section 11 Source Control Strategy; multi-repo is out of scope for v1."
+      },
+      {
+        "item": "Production Kubernetes / live EKS deployment",
+        "rationale": "v1 targets local Docker Compose; the Helm chart is a stub only per Section 13."
+      },
+      {
+        "item": "Business logic, domain entities, and use cases",
+        "rationale": "Delivered by the domain epics BE-7, BE-1, BE-2, BE-5, BE-3, BE-6, BE-4."
+      },
+      {
+        "item": "Secrets manager integration (Vault / AWS Secrets Manager)",
+        "rationale": "v1 injects secrets as environment variables; a secrets manager is a Phase 2 hardening item per Section 16 AVOID-4."
+      },
+      {
+        "item": "Test framework configuration (Testcontainers, Playwright, coverage)",
+        "rationale": "Delivered by BE-12 Testing Infrastructure, which this epic precedes."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "language": "Java 21 LTS",
+      "backend_framework": "Spring Boot 3.x",
+      "build_tool": "Maven 3.9.x",
+      "source_control": "GitHub (private monorepo, free personal plan)",
+      "source_control_auth": "Classic Personal Access Token with `repo` scope",
+      "containerisation": "Docker + Spring Boot buildpacks",
+      "event_streaming": "Apache Kafka 3.x (KRaft mode, no ZooKeeper)",
+      "schema_registry": "Confluent Schema Registry",
+      "database": "PostgreSQL 16",
+      "ci_server": "Jenkins 2.x LTS",
+      "k8s_package_manager": "Helm 3.x",
+      "mock_service": "Node.js 20 / Express / TypeScript"
+    },
+    "existing_patterns": [
+      "Single monorepo containing all services and deploy assets (Section 11 Source Control Strategy)",
+      "Modular monolith (Phase 1) with Clean Architecture layering",
+      "Centralised Maven dependency and plugin management in the parent POM (Section 15.5)",
+      "Branch-per-story short-lived branches with slug-prefixed names (e.g. be-3/place-market-order)"
+    ],
+    "integration_points": [
+      "GitHub REST API for repository creation and scaffold push (PAT-authenticated)",
+      "Docker Compose service network wiring across api, batch, postgres, kafka, schema-registry, mock-service, ui",
+      "Actuator health endpoints consumed by Docker Compose health checks"
+    ],
+    "deployment_constraints": [
+      "Entire stack must run on a single machine with at least 16 GB RAM",
+      "Total container stack memory budgeted at approximately 2 GB with explicit per-container mem_limit",
+      "Kafka runs in KRaft mode to avoid a separate ZooKeeper container",
+      "Free-plan private repo: no server-side branch protection; enforce quality via required CI checks"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": ".",
+        "notes": "Private monorepo created and scaffolded by this epic (FR-8). ${GITHUB_OWNER} and ${GITHUB_REPO} are resolved from the run-config (defaults TimLafleur-w/brokeredge); each contributor may point at the shared main repo or their own. Root contains the Maven parent POM plus /api-service, /batch-service, /mock-service, /ui, /docs, and /deploy. All later epics work in a subtree of this repo."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 7.2 (Local Docker Compose Stack), Section 9 (CI/CD), Section 11 (Source Control Strategy), Section 15.5 (Maven Multi-Module Structure), Section 16 (Antipatterns)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for the build structure, memory budget, port mapping, source-control strategy, and pipeline stages."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "The combined container stack exceeds the 2 GB memory budget on the 16 GB reference machine.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Set explicit `mem_limit` per container per Section 7.2; tune JVM `-XX:MaxRAMPercentage` for api and batch; prefer Alpine base images.",
+      "trigger": "`docker stats` shows aggregate memory above 2 GB after `docker compose up`.",
+      "contingency": "Reduce JVM heap ceilings, disable non-essential services in a `dev` compose profile, and document a minimal-profile startup."
+    },
+    {
+      "id": "R-2",
+      "description": "Kafka in KRaft mode or Schema Registry fails to become healthy in time, blocking dependent service startup.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Add generous health-check start periods and retries; pin Kafka and Schema Registry image versions.",
+      "trigger": "api-service or batch-service containers restart-loop waiting on Kafka dependency health.",
+      "contingency": "Increase health-check `start_period`; add an explicit readiness wait script before dependent services start."
+    },
+    {
+      "id": "R-3",
+      "description": "Spring Boot buildpack image builds are slow or produce oversized images, hurting the build-time goal.",
+      "probability": "low",
+      "impact": "medium",
+      "mitigation": "Enable buildpack layer caching in CI; use a slim JRE base image.",
+      "trigger": "Image build stage exceeds its time budget or images exceed a reasonable size threshold.",
+      "contingency": "Switch the affected module to a hand-written multi-stage Dockerfile."
+    },
+    {
+      "id": "R-4",
+      "description": "Free-plan private repo cannot enforce branch protection, so a failing PR could be merged manually, bypassing the quality gate.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Make required CI status checks the merge policy; document the branch-per-story workflow; keep PRs small and agent-gated.",
+      "trigger": "A merge lands on `main` with a failed or missing CI status check.",
+      "contingency": "Add a CI job that reverts or flags commits to `main` lacking a passing check, or upgrade to GitHub Pro to enable branch protection."
+    },
+    {
+      "id": "R-5",
+      "description": "The GitHub PAT is missing, under-scoped, or leaked, blocking repo bootstrap or exposing the account.",
+      "probability": "low",
+      "impact": "high",
+      "mitigation": "Require a `repo`-scoped classic PAT supplied only via a pipeline credential; never commit it; scope it to the single account.",
+      "trigger": "Repo creation fails with an authorization error, or the secret scan detects a token.",
+      "contingency": "Rotate the PAT immediately; re-run bootstrap with a correctly scoped token."
+    }
+  ],
+  "dependencies": {
+    "internal": [],
+    "external": [
+      {
+        "description": "GitHub personal account (free plan) and a classic Personal Access Token with `repo` scope, supplied to the pipeline as a credential, used to create the private monorepo and push the scaffold.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "blocking": true
+      },
+      {
+        "description": "Docker Desktop (or a compatible container runtime) installed and running on the developer machine.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "blocking": true
+      },
+      {
+        "description": "JDK 21 and Maven 3.9 available on the build machine and CI agent.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "blocking": true
+      }
+    ]
+  },
+  "definition_of_done": [
+    "A private GitHub monorepo exists with the standard layout and initial scaffold, created idempotently by the pipeline.",
+    "A developer can clone the repository and run the entire application stack locally with a single command.",
+    "Every service exposes a health endpoint that reports healthy in the running local stack.",
+    "The CI pipeline runs on every pull request and reports a required status check that gates merges under the branch-per-story policy.",
+    "The container stack runs within the documented memory budget on a 16 GB machine.",
+    "No secret values exist anywhere in the source repository."
+  ],
+  "story_outline": [
+    { "title": "Bootstrap private GitHub monorepo and scaffold", "fr_refs": ["FR-8"] },
+    { "title": "Scaffold Maven parent POM and service modules", "fr_refs": ["FR-1"] },
+    { "title": "Create runnable Spring Boot skeletons with Actuator and Flyway wiring", "fr_refs": ["FR-5"] },
+    { "title": "Build container images for all services", "fr_refs": ["FR-2"] },
+    { "title": "Author Docker Compose stack with memory limits and health checks", "fr_refs": ["FR-3"] },
+    { "title": "Implement Jenkinsfile CI pipeline with PR status checks", "fr_refs": ["FR-4"] },
+    { "title": "Add secret-scanning and gitignore hygiene", "fr_refs": ["FR-7"] },
+    { "title": "Provide Helm chart stub", "fr_refs": ["FR-6"] },
+    { "title": "Commit design document into /docs", "fr_refs": ["FR-9"] },
+    { "title": "Configure Flyway out-of-order for local/dev/ci", "fr_refs": ["FR-10"] }
+  ]
+}

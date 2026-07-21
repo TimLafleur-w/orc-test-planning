@@ -1,0 +1,305 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-2",
+  "slug": "account-management",
+  "title": "Account Management — Open Account, Funding & Account Details",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Core",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "An authenticated investor has no way to hold or move money in BrokerEdge, which is a prerequisite for any trading. There is no brokerage account to open, no mechanism to deposit or withdraw funds, and no way to view an account balance and details. Until accounts and funding exist, orders and portfolios have nothing to operate on.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Let an investor open a cash brokerage account.",
+      "success_measure": "An authenticated investor can open exactly one CASH account that is created ACTIVE with a zero balance and a unique account number.",
+      "measurement_method": "Integration test asserting account creation, ACTIVE status, and a persisted unique account number."
+    },
+    {
+      "id": "G-2",
+      "goal": "Let an investor fund and withdraw money safely.",
+      "success_measure": "Deposits and withdrawals adjust the cash balance atomically with a ledger transaction, never allow a negative balance, and are idempotent under retry.",
+      "measurement_method": "Integration tests for deposit, withdraw, insufficient-funds rejection, negative-balance DB constraint, and duplicate idempotency-key handling."
+    },
+    {
+      "id": "G-3",
+      "goal": "Give an investor an accurate account view with an audit trail of money movement.",
+      "success_measure": "Account details return the current cash balance, and every open/deposit/withdraw emits its business and audit events exactly once.",
+      "measurement_method": "API test of account details plus a consumer test asserting AccountOpened/AccountFunded and corresponding audit events."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "Open an account and move money in and out to fund trading.",
+      "pain_point": "Without funding, there is no buying power and nothing to trade with."
+    },
+    {
+      "name": "Riya",
+      "role": "Compliance & Audit Analyst",
+      "goal": "Trace every deposit and withdrawal to an immutable audit record.",
+      "pain_point": "Unaudited money movement is a compliance failure."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Provide POST /api/v1/accounts to open a CASH brokerage account for the authenticated user, created with status ACTIVE, zero cashBalance, and a unique account number; emit AccountOpened and the ACCOUNT_OPENED/ACCOUNT_ACTIVATED audit events in one transaction per Sections 6.1 and 15.1.",
+      "priority": "Must",
+      "source": ["G-1", "G-3"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Provide POST /api/v1/accounts/{id}/funds/deposit calling the Mock Service payment endpoint, and on success inserting a DEPOSIT transaction and increasing cashBalance in the same DB transaction, per Section 15.1; amount validated per Section 15.2: minimum $1.00, maximum $1,000,000.00, with exactly 2 decimal places.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Provide POST /api/v1/accounts/{id}/funds/withdraw that rejects amounts exceeding the balance with 422 insufficient-funds, and on success inserts a WITHDRAWAL transaction and decreases cashBalance atomically, per Section 15.1; amount validated per Section 15.2: minimum $1.00, maximum $1,000,000.00, with exactly 2 decimal places.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Enforce the cash-balance invariant with a database CHECK (cash_balance >= 0) constraint in addition to application checks, per Section 16 FX-2.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Honour an Idempotency-Key header on deposit and withdraw so a duplicate submission returns the original result without re-executing, per Section 16 AVOID-5.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Provide GET /api/v1/accounts and GET /api/v1/accounts/{id} returning account details including current cashBalance, enforcing ownership so a user cannot read another user's account (403).",
+      "priority": "Must",
+      "source": ["G-1", "G-3"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Emit AccountFunded business events and FUNDS_DEPOSITED/FUNDS_WITHDRAWN audit events for money movement, and request a Mock Service email notification on funding.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-8",
+      "description": "Return 405 Method Not Allowed for PATCH /api/v1/accounts/{id}, reserving the path for a v2 nickname-update feature per Section 15.1.",
+      "priority": "Could",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-9",
+      "description": "Author and own the Flyway migrations for this epic: `V002__create_brokerage_accounts.sql` (brokerage_accounts table including the CHECK (cash_balance >= 0) constraint), `V005__create_transactions.sql` (transactions ledger), and `V015__create_idempotency_keys.sql` (idempotency_keys table backing Idempotency-Key handling), per Section 6.2.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    },
+    {
+      "id": "FR-10",
+      "description": "Own and implement the Mock Service endpoints this epic depends on in /mock-service: the payment deposit and withdraw endpoints, per Section 10. (The email notification endpoint used on funding is owned and implemented by BE-7.)",
+      "priority": "Must",
+      "source": ["G-2"]
+    }
+  ],
+  "non_functional_requirements": {
+    "security": [
+      "Account reads and money movement are authorised to the owning user only; cross-user access returns 403."
+    ],
+    "compliance": [
+      "Every account-opening and funding action produces an immutable audit record.",
+      "The non-negative cash-balance invariant is enforced at the database level as a last line of defence."
+    ],
+    "performance": [
+      "cashBalance is updated synchronously in the same transaction as each ledger insert and never recalculated from the ledger at read time (Section 15.1)."
+    ],
+    "availability": [
+      "A Mock Service payment outage returns a clear 402/503 without corrupting the ledger; no partial money movement is persisted."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Open a cash account",
+      "given": "an authenticated investor with no account",
+      "when": "POST /api/v1/accounts is called",
+      "then": ["the response is 201 with an account that is ACTIVE and has zero cashBalance and a unique account number"],
+      "and": ["AccountOpened and ACCOUNT_OPENED audit events are recorded"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Deposit funds",
+      "given": "an authenticated investor with an ACTIVE account",
+      "when": "POST /api/v1/accounts/{id}/funds/deposit is called with amount 1000.00",
+      "then": ["the Mock Service payment endpoint is called with amount 1000.00", "the response is 200 and cashBalance increases by 1000.00", "a DEPOSIT transaction is recorded"],
+      "and": ["a FUNDS_DEPOSITED audit event is recorded and an email notification is requested"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-3",
+      "scenario": "Withdrawal beyond balance is rejected",
+      "given": "an account whose balance is less than the requested withdrawal",
+      "when": "POST /api/v1/accounts/{id}/funds/withdraw is called",
+      "then": ["the response is 422 with RFC-7807 type insufficient-funds", "no transaction is recorded and the balance is unchanged"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-5",
+      "scenario": "Idempotent deposit under retry",
+      "given": "a deposit request carrying an Idempotency-Key already processed",
+      "when": "the identical request is submitted again with the same key",
+      "then": ["the original response is returned", "no second transaction is recorded and the balance is not changed twice"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-6",
+      "scenario": "Cross-user account access is forbidden",
+      "given": "an account owned by another user",
+      "when": "GET /api/v1/accounts/{id} is called by a different authenticated user",
+      "then": ["the response is 403 access-denied"]
+    },
+    {
+      "id": "AC-6",
+      "fr_ref": "FR-4",
+      "scenario": "Database blocks a negative balance",
+      "given": "an attempt to persist a negative cash_balance",
+      "when": "the write reaches the database",
+      "then": ["the CHECK (cash_balance >= 0) constraint rejects the write"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Open a single CASH brokerage account (created ACTIVE)",
+      "Deposit and withdraw via the Mock Service payment integration",
+      "Atomic cashBalance updates with ledger transactions and non-negative DB constraint",
+      "Idempotency-Key support on funding endpoints",
+      "Account list and details with ownership enforcement",
+      "Account and funding business + audit events and funding email notification",
+      "PATCH /accounts/{id} returns 405 (reserved for v2)"
+    ],
+    "out_of_scope": [
+      {
+        "item": "MARGIN account type",
+        "rationale": "Only CASH accounts are supported in v1 per Section 15.1; MARGIN is reserved."
+      },
+      {
+        "item": "Account suspension / status transitions beyond creation",
+        "rationale": "ACCOUNT_SUSPENDED and admin lifecycle actions are Phase 2 per Section 15.1."
+      },
+      {
+        "item": "Account nickname / profile editing",
+        "rationale": "PATCH is reserved and returns 405 in v1 per Section 15.1."
+      },
+      {
+        "item": "Real payment rails",
+        "rationale": "All payments are simulated by the Mock Service; no real money movement occurs."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "framework": "Spring Boot 3.x",
+      "orm": "Spring Data JPA / Hibernate",
+      "database": "PostgreSQL 16",
+      "migrations": "Flyway 10.x",
+      "events": "Kafka + transactional outbox (BE-7)",
+      "external_mock": "BrokerEdge Mock Service (payments, notifications)"
+    },
+    "existing_patterns": [
+      "AuditableUseCase base class writing business + audit outbox events atomically (BE-7)",
+      "Synchronous cashBalance caching per Section 15.1",
+      "RFC-7807 error contract (Section 15.3)"
+    ],
+    "integration_points": [
+      "Mock Service payment endpoints for deposit/withdraw",
+      "Mock Service notification endpoint for funding emails",
+      "Event/audit infrastructure (BE-7)"
+    ],
+    "deployment_constraints": [
+      "Mock Service reachable via MOCK_SERVICE_URL in the local stack"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "api-service",
+        "notes": "Account and funding code in /api-service; payment and notification mocks in /mock-service. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.1, Section 10 (Mocking), Section 15.1 (cashBalance rules), Section 15.2/15.3, Section 16 (FX-2, AVOID-5)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for account entity, funding rules, and payment mock behaviour."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Concurrent withdrawals/deposits race and defeat the application balance check.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Use optimistic locking (@Version) on the account and the DB CHECK constraint as a backstop; map OptimisticLockingFailure to 409 per Section 15.3.",
+      "trigger": "Concurrent funding operations produce an unexpected balance or a 409 in tests.",
+      "contingency": "Serialize per-account money movement with SELECT FOR UPDATE if optimistic retries prove insufficient."
+    },
+    {
+      "id": "R-2",
+      "description": "Mock Service payment failure after DB work risks a partial money movement.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Call the payment mock before committing ledger changes and wrap the operation so failure rolls back cleanly; surface 402/503.",
+      "trigger": "Payment mock returns an error mid-operation in tests.",
+      "contingency": "Add a reconciliation check for orphaned pending funding operations."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Authenticated user identity and Spring Security context.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-1",
+        "blocking": true
+      },
+      {
+        "description": "Event and audit infrastructure (outbox, audit events, AuditableUseCase).",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-7",
+        "blocking": true
+      },
+      {
+        "description": "mock-service project scaffold (this epic implements its own endpoints within it)",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": false
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "An investor can open a cash account and see its details and balance.",
+    "An investor can deposit and withdraw money with accurate, atomic balance updates.",
+    "Withdrawals cannot overdraw an account, enforced in the application and the database.",
+    "Duplicate funding submissions are safely idempotent.",
+    "Every account and funding action is recorded in the audit trail."
+  ],
+  "story_outline": [
+    { "title": "Open cash brokerage account", "fr_refs": ["FR-1"] },
+    { "title": "Deposit funds via payment mock", "fr_refs": ["FR-2", "FR-7"] },
+    { "title": "Withdraw funds with insufficient-funds handling", "fr_refs": ["FR-3", "FR-7"] },
+    { "title": "Non-negative balance DB constraint", "fr_refs": ["FR-4"] },
+    { "title": "Idempotency-Key support on funding", "fr_refs": ["FR-5"] },
+    { "title": "Account list and details with ownership checks", "fr_refs": ["FR-6"] },
+    { "title": "Reserve PATCH accounts endpoint (405)", "fr_refs": ["FR-8"] },
+    { "title": "Author accounts, transactions, and idempotency_keys migrations", "fr_refs": ["FR-9"] },
+    { "title": "Implement Mock Service payment endpoints", "fr_refs": ["FR-10"] }
+  ]
+}

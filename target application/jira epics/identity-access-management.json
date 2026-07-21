@@ -1,0 +1,313 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-1",
+  "slug": "identity-access-management",
+  "title": "Identity & Access Management — Registration, Login & JWT Sessions",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Core",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "A retail investor cannot use BrokerEdge until they can create an account, prove who they are, and maintain a secure session. Today there is no way to register, authenticate, or obtain the credentials that every other capability requires to identify and authorise the caller. Without identity and access management, no account, trading, or portfolio feature can be built or secured.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Let a new user register and authenticate securely.",
+      "success_measure": "A user can register with a valid email and strong password and then log in to receive a working access token; credentials are stored only as a bcrypt hash.",
+      "measurement_method": "Integration test covering register-then-login and inspection confirming no plaintext password is persisted."
+    },
+    {
+      "id": "G-2",
+      "goal": "Maintain secure, refreshable sessions without server-side access-token state.",
+      "success_measure": "A 15-minute access token can be silently refreshed via a single-use rotating refresh token, and logout revokes the refresh token.",
+      "measurement_method": "Integration test of the refresh-and-rotate flow and a logout test confirming the refresh token is revoked."
+    },
+    {
+      "id": "G-3",
+      "goal": "Produce a complete authentication audit trail.",
+      "success_measure": "Registration, successful login, failed login, refresh, and logout each emit their defined audit event and appear in the audit trail.",
+      "measurement_method": "Consumer test asserting the expected audit events are present for each auth operation."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "Create an account and securely sign in to manage investments.",
+      "pain_point": "Cannot access any brokerage capability without a trustworthy account and login."
+    },
+    {
+      "name": "Riya",
+      "role": "Compliance & Audit Analyst",
+      "goal": "See a complete record of authentication activity, including failed attempts.",
+      "pain_point": "Missing auth records make it impossible to investigate suspicious access."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Provide POST /api/v1/auth/register accepting firstName, lastName, email, and password with the validation constraints in Section 15.2 — password 8–72 characters containing at least one uppercase letter, one lowercase letter, and one digit; firstName and lastName each 1–50 characters; email valid, at most 255 characters, and unique; persist the user with a bcrypt password hash and role INVESTOR; reject duplicate emails with 409.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Provide POST /api/v1/auth/login validating credentials and returning an HS256 access token with 900-second expiry plus an HttpOnly, Secure, SameSite=Strict refresh-token cookie, per Section 15.4.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Provide POST /api/v1/auth/refresh performing single-use refresh-token rotation (validate, revoke current, issue new token and cookie) backed by a refresh_tokens table (Flyway V014), per Section 15.4.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Provide POST /api/v1/auth/logout revoking the refresh token and clearing the cookie (maxAge=0), returning 204; access tokens expire naturally with no server-side blocklist, per Section 15.4.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Implement Spring Security configuration: stateless JWT bearer authentication on protected endpoints, CSRF disabled (safe only due to SameSite=Strict per Section 16 AVOID-13), and the CORS policy in Section 15.4.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Emit authentication audit events (USER_REGISTERED, LOGIN_SUCCESS, LOGIN_FAILURE, TOKEN_REFRESHED, LOGOUT) via the audit infrastructure, per Section 7.4.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Apply per-IP rate limiting to login and registration (10/min login, 5/min registration) returning 429 with Retry-After per Section 16 AVOID-6.",
+      "priority": "Should",
+      "source": ["G-1", "G-3"]
+    },
+    {
+      "id": "FR-8",
+      "description": "Provide the GlobalExceptionHandler emitting RFC-7807 Problem Detail responses with the error slugs and HTTP statuses defined in Section 15.3, including duplicate-email, invalid-credentials, token-expired, validation-error, and concurrent-modification.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    },
+    {
+      "id": "FR-9",
+      "description": "Author and own the Flyway migrations for this epic: `V001__create_users.sql` (users table, unique index on email) and `V014__create_refresh_tokens.sql` (refresh_tokens table), per Section 6.2.",
+      "priority": "Must",
+      "source": ["G-1", "G-2"]
+    }
+  ],
+  "non_functional_requirements": {
+    "security": [
+      "Passwords are stored only as bcrypt hashes; no plaintext or reversible encoding is persisted.",
+      "Access tokens are HS256 with 900-second expiry; refresh tokens are opaque, hashed at rest, single-use, and 7-day lived.",
+      "Login and registration are rate-limited per IP to resist credential stuffing.",
+      "Refresh/logout rely on SameSite=Strict cookies; CSRF-disabled configuration must not be relaxed without re-enabling CSRF (Section 16 AVOID-13)."
+    ],
+    "compliance": [
+      "Every authentication operation, including failed logins, produces an immutable audit record."
+    ],
+    "observability": [
+      "Auth failures are logged with a traceId correlatable to the RFC-7807 response."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Successful registration",
+      "given": "a registration request with firstName and lastName each 1–50 characters, a valid email of at most 255 characters, and a password of 8–72 characters containing at least one uppercase letter, one lowercase letter, and one digit",
+      "when": "POST /api/v1/auth/register is called",
+      "then": ["the response is 201 with id, email, firstName, lastName", "a user row exists with a bcrypt password hash and role INVESTOR"],
+      "and": ["a USER_REGISTERED audit event is recorded", "a registration notification event is emitted for the BE-7 notification consumer to deliver asynchronously"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-1",
+      "scenario": "Duplicate email is rejected",
+      "given": "an email that already exists",
+      "when": "POST /api/v1/auth/register is called with that email",
+      "then": ["the response is 409 with RFC-7807 type duplicate-email", "no new user row is created"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-2",
+      "scenario": "Successful login issues token and refresh cookie",
+      "given": "a registered user with correct credentials",
+      "when": "POST /api/v1/auth/login is called",
+      "then": ["the response is 200 with token and expiresIn 900", "an HttpOnly SameSite=Strict refresh_token cookie is set"],
+      "and": ["a LOGIN_SUCCESS audit event is recorded"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-2",
+      "scenario": "Failed login is audited",
+      "given": "a registered user",
+      "when": "POST /api/v1/auth/login is called with an incorrect password",
+      "then": ["the response is 401 with RFC-7807 type invalid-credentials", "a LOGIN_FAILURE audit event is recorded"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-3",
+      "scenario": "Refresh rotates the token",
+      "given": "a valid refresh_token cookie",
+      "when": "POST /api/v1/auth/refresh is called",
+      "then": ["a new access token is returned", "the previous refresh token is revoked and a new refresh_token cookie is set"],
+      "and": ["a TOKEN_REFRESHED audit event is recorded"]
+    },
+    {
+      "id": "AC-6",
+      "fr_ref": "FR-4",
+      "scenario": "Logout revokes the session",
+      "given": "an authenticated session with a refresh_token cookie",
+      "when": "POST /api/v1/auth/logout is called",
+      "then": ["the response is 204", "the refresh token is revoked and the cookie is cleared"],
+      "and": ["a LOGOUT audit event is recorded"]
+    },
+    {
+      "id": "AC-7",
+      "fr_ref": "FR-7",
+      "scenario": "Login rate limit protects against brute force",
+      "given": "the per-IP login rate limit of 10 requests per minute",
+      "when": "an IP exceeds the limit within a minute",
+      "then": ["further login attempts return 429 with a Retry-After header"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "User registration with strong-password and email validation",
+      "Login issuing HS256 access token and refresh cookie",
+      "Single-use refresh-token rotation with refresh_tokens table",
+      "Logout revoking the refresh token",
+      "Spring Security stateless JWT config, CORS, and CSRF-disabled posture",
+      "Authentication audit events",
+      "Per-IP rate limiting on login and registration",
+      "GlobalExceptionHandler with RFC-7807 error responses"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Password reset / forgot-password flow",
+        "rationale": "Explicitly descoped from v1 per Section 15.1; only the audit event is stubbed."
+      },
+      {
+        "item": "Admin role capabilities and account suspension",
+        "rationale": "ADMIN actions are a Phase 2 feature per Section 15.1; v1 issues only the INVESTOR role."
+      },
+      {
+        "item": "Access-token server-side revocation/blocklist",
+        "rationale": "v1 accepts natural 15-minute expiry as the documented security boundary per Section 15.4."
+      },
+      {
+        "item": "Multi-factor authentication and social login",
+        "rationale": "Not in v1 scope; email/password only."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "framework": "Spring Boot 3.x",
+      "security": "Spring Security 6.x + JWT (jjwt, HS256)",
+      "orm": "Spring Data JPA / Hibernate",
+      "database": "PostgreSQL 16",
+      "migrations": "Flyway 10.x",
+      "rate_limiting": "Bucket4j"
+    },
+    "existing_patterns": [
+      "Clean Architecture use cases (RegisterUserUseCase, LoginUseCase, RefreshTokenUseCase, LogoutUseCase) per Section 6.1",
+      "AuditableUseCase base class from BE-7 for audit emission",
+      "RFC-7807 Problem Detail error contract (Section 15.3)"
+    ],
+    "integration_points": [
+      "Audit and event infrastructure (BE-7) for auth audit events",
+      "Mock Service notification endpoint for the registration confirmation email"
+    ],
+    "deployment_constraints": [
+      "Stateless authentication so the API service remains horizontally scalable and memory-light"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "api-service",
+        "notes": "Identity & access code lives in /api-service (auth use cases, Spring Security config). Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.1 (REST API), Section 15.2 (Validation), Section 15.3 (Errors), Section 15.4 (Auth & Sessions), Section 16 AVOID-6/AVOID-13",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for auth endpoints, token lifetimes, validation, and error contract."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Relaxing SameSite or adding session auth later silently exposes refresh/logout to CSRF given CSRF is disabled.",
+      "probability": "low",
+      "impact": "high",
+      "mitigation": "Document the AVOID-13 rule in SecurityConfig; require a security review before any SameSite/session change.",
+      "trigger": "A change modifies SecurityConfig cookie policy or session management.",
+      "contingency": "Re-enable CSRF protection for cookie-bearing endpoints before merging."
+    },
+    {
+      "id": "R-2",
+      "description": "Fire-and-forget style auth audit could drop LOGIN_FAILURE events during a Kafka blip, weakening security monitoring.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Write auth audit events through the outbox in their own transaction so delivery is guaranteed (BE-7).",
+      "trigger": "Audit records missing for known failed-login test scenarios.",
+      "contingency": "Add a durable local fallback log for auth events pending relay."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Event and audit infrastructure: AuditableUseCase, audit topic, AuditLogConsumer, outbox.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-7",
+        "blocking": true
+      },
+      {
+        "description": "Runnable service skeleton, DB, and Docker Compose stack.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": true
+      },
+      {
+        "description": "Test harness for integration and contract tests.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-12",
+        "blocking": false
+      }
+    ],
+    "external": [
+      {
+        "description": "Mock Service notification endpoint for the registration confirmation email.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "blocking": false
+      }
+    ]
+  },
+  "definition_of_done": [
+    "A new user can register and immediately log in to obtain a working session.",
+    "Sessions can be silently refreshed and explicitly ended via logout.",
+    "Every authentication operation, including failures, is recorded in the audit trail.",
+    "Login and registration are protected against brute-force attempts.",
+    "All error responses follow the RFC-7807 contract with the correct status and slug."
+  ],
+  "story_outline": [
+    { "title": "User registration endpoint and use case", "fr_refs": ["FR-1", "FR-8"] },
+    { "title": "Login endpoint with JWT and refresh cookie", "fr_refs": ["FR-2"] },
+    { "title": "Refresh-token rotation and refresh_tokens table", "fr_refs": ["FR-3"] },
+    { "title": "Logout and refresh-token revocation", "fr_refs": ["FR-4"] },
+    { "title": "Spring Security, CORS, and CSRF configuration", "fr_refs": ["FR-5"] },
+    { "title": "Authentication audit events", "fr_refs": ["FR-6"] },
+    { "title": "Rate limiting on auth endpoints", "fr_refs": ["FR-7"] },
+    { "title": "Author users and refresh_tokens Flyway migrations", "fr_refs": ["FR-9"] }
+  ]
+}

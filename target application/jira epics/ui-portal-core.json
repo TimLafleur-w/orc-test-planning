@@ -1,0 +1,255 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-8",
+  "slug": "ui-portal-core",
+  "title": "UI Portal Core — Auth Screens, Dashboard, Account UI & Navigation",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge UI",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "All BrokerEdge capabilities are only reachable through the API, so a retail investor has no usable way to interact with the product. There is no sign-up or sign-in experience, no landing dashboard, no account or funding screens, and no navigation shell to move between areas. Without a core web portal, the application cannot be used by an actual person.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Let an investor authenticate through the web portal.",
+      "success_measure": "An investor can register, log in, stay signed in across silent token refresh, and log out entirely from the UI.",
+      "measurement_method": "Playwright E2E covering register, login, a refresh cycle, and logout."
+    },
+    {
+      "id": "G-2",
+      "goal": "Provide a navigable authenticated shell with a dashboard.",
+      "success_measure": "Authenticated users land on a dashboard summarising account value and can navigate to accounts, trading, and portfolio via protected routes; unauthenticated users are redirected to login.",
+      "measurement_method": "E2E asserting route protection, redirect behaviour, and dashboard content."
+    },
+    {
+      "id": "G-3",
+      "goal": "Let an investor manage accounts and funding from the UI.",
+      "success_measure": "An investor can open an account and deposit/withdraw funds through the UI with validation feedback and error handling mapped from RFC-7807 responses.",
+      "measurement_method": "E2E covering account open and a deposit/withdraw with a validation-error and an insufficient-funds path."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "Use a clear, responsive web app to sign in, manage the account, and fund it.",
+      "pain_point": "An API alone is unusable; a person needs screens, navigation, and readable errors."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Implement auth screens (register, login, logout) wired to the auth API, storing the access token in memory (Zustand) and relying on the HttpOnly refresh cookie, with silent refresh on expiry per Section 15.4.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Implement an application shell with navigation and client-side routing, including protected routes that redirect unauthenticated users to login, per Section 6.5.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Implement a dashboard summarising total account value and quick links, using TanStack Query for server state.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Implement account management UI: open account, view account details/balance, and deposit/withdraw funds with React Hook Form + Zod validation matching Section 15.2.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Map RFC-7807 error responses to human-readable messages mapped per RFC-7807 error slug (per-field validation, insufficient-funds, access-denied, concurrent-modification) per Section 15.3.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Attach the bearer token to API requests and handle 401 by attempting a silent refresh then redirecting to login on failure.",
+      "priority": "Must",
+      "source": ["G-1"]
+    }
+  ],
+  "non_functional_requirements": {
+    "accessibility": [
+      "Forms and navigation are keyboard-accessible with labelled inputs and visible focus states."
+    ],
+    "security": [
+      "The access token is held only in memory; the refresh token is never accessible to JavaScript (HttpOnly cookie) per Section 15.4."
+    ],
+    "performance": [
+      "The UI is built with Vite and served by Nginx; initial dashboard render uses cached server state where available."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Register and log in via UI",
+      "given": "a visitor on the registration screen",
+      "when": "they register with valid details and then log in",
+      "then": ["they are authenticated and routed to the dashboard"],
+      "and": ["the access token is held in memory and a refresh cookie is set"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Protected route redirects unauthenticated users",
+      "given": "an unauthenticated visitor",
+      "when": "they navigate directly to a protected route",
+      "then": ["they are redirected to the login screen"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-4",
+      "scenario": "Open account and deposit funds",
+      "given": "an authenticated investor with no account",
+      "when": "they open an account and deposit a valid amount",
+      "then": ["the account appears with the updated balance", "a success confirmation is shown"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-5",
+      "scenario": "Validation and domain errors are shown clearly",
+      "given": "a deposit below the $1.00 minimum and a withdrawal exceeding the balance",
+      "when": "each is submitted",
+      "then": ["a field-level validation message is shown for the invalid deposit", "an insufficient-funds message is shown for the over-withdrawal"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-6",
+      "scenario": "Silent refresh keeps the user signed in",
+      "given": "an authenticated session whose access token has expired",
+      "when": "the user makes an authenticated action",
+      "then": ["the app silently refreshes the token and completes the action", "the user is not forced to log in again while the refresh token is valid"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Register, login, and logout screens with in-memory token and silent refresh",
+      "Application shell, navigation, and protected client-side routing",
+      "Dashboard summarising account value",
+      "Account open and deposit/withdraw UI with Zod validation",
+      "RFC-7807 error mapping to user-friendly messages",
+      "Bearer token attachment and 401-triggered refresh handling"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Trading screens (order entry, order book, security search)",
+        "rationale": "Delivered by BE-9 UI Portal Trading."
+      },
+      {
+        "item": "Portfolio, transaction history, and statements screens",
+        "rationale": "Delivered by BE-10 UI Portal Portfolio."
+      },
+      {
+        "item": "Password reset UI",
+        "rationale": "Password reset is descoped from v1 per Section 15.1."
+      },
+      {
+        "item": "Theming/dark mode and internationalisation",
+        "rationale": "Not required for v1 scope."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "language": "TypeScript 5.x",
+      "framework": "React 18",
+      "ui": "shadcn/ui + Tailwind CSS",
+      "state": "Zustand + TanStack Query",
+      "forms": "React Hook Form + Zod",
+      "build": "Vite 5.x",
+      "serving": "Nginx"
+    },
+    "existing_patterns": [
+      "Component/routing structure per Section 6.5",
+      "In-memory access token with HttpOnly refresh cookie (Section 15.4)",
+      "MSW request mocking for component tests (BE-12)"
+    ],
+    "integration_points": [
+      "Auth API (register/login/refresh/logout)",
+      "Accounts API (open, details, funding)"
+    ],
+    "deployment_constraints": [
+      "UI served as static assets by Nginx within the container memory budget (Section 7.2)"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "ui",
+        "notes": "Core UI (auth screens, app shell, dashboard, account/funding screens) in /ui. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.5 (UI Portal), Section 6.6 (User Experience), Section 15.2/15.3/15.4",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for UI structure, auth handling, and error mapping."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Token handling errors cause silent logout loops or leave stale tokens after logout.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Centralise auth in a single store and API client; test refresh and logout flows in E2E.",
+      "trigger": "Users are unexpectedly logged out or remain authenticated after logout in tests.",
+      "contingency": "Add explicit token-state assertions and a forced re-login fallback on refresh failure."
+    },
+    {
+      "id": "R-2",
+      "description": "UI validation drifts from server validation, producing inconsistent errors.",
+      "probability": "medium",
+      "impact": "low",
+      "mitigation": "Derive Zod schemas from the Section 15.2 constraints and rely on RFC-7807 mapping as the source of truth for server errors.",
+      "trigger": "A value accepted by the UI is rejected by the API or vice versa.",
+      "contingency": "Align client rules to server constraints and surface server errors verbatim."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Auth API for register/login/refresh/logout.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-1",
+        "blocking": true
+      },
+      {
+        "description": "Accounts API for open and funding.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-2",
+        "blocking": true
+      },
+      {
+        "description": "UI test tooling (Vitest, RTL, MSW, Playwright).",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-12",
+        "blocking": false
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "An investor can register, sign in, stay signed in, and sign out from the web portal.",
+    "Authenticated users can navigate a protected app shell and see a dashboard.",
+    "An investor can open and fund an account from the UI with clear validation and error feedback.",
+    "Core user journeys pass in the Playwright E2E suite against the local stack."
+  ],
+  "story_outline": [
+    { "title": "Auth screens and token/session handling", "fr_refs": ["FR-1", "FR-6"] },
+    { "title": "App shell, navigation, and protected routing", "fr_refs": ["FR-2"] },
+    { "title": "Dashboard summary", "fr_refs": ["FR-3"] },
+    { "title": "Account and funding UI with validation", "fr_refs": ["FR-4", "FR-5"] }
+  ]
+}

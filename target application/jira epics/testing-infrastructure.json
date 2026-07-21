@@ -1,0 +1,238 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-12",
+  "slug": "testing-infrastructure",
+  "title": "Testing Infrastructure — Testcontainers, Contract Tests, Playwright & Coverage",
+  "type": "enabler",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Platform",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "BrokerEdge is built with Test-Driven Development, yet there is no shared testing foundation for developer agents to write against. Without configured integration testing against real PostgreSQL and Kafka, consumer-driven contract testing between the API and UI, an end-to-end browser harness, and enforced coverage reporting, each feature epic would reinvent its own test setup inconsistently and the pipeline could not gate merges on test quality. This undermines the deterministic, test-first delivery the pipeline depends on.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Provide reliable integration testing against production-equivalent infrastructure.",
+      "success_measure": "Integration tests run against real PostgreSQL 16 and Kafka via Testcontainers with a container reuse strategy, and a sample repository + Kafka round-trip test passes in CI.",
+      "measurement_method": "CI test report showing Testcontainers-backed tests green, and confirmation no H2 is on the persistence test classpath."
+    },
+    {
+      "id": "G-2",
+      "goal": "Establish consumer-driven contract testing between the REST API and the UI.",
+      "success_measure": "A Spring Cloud Contract producer verification and a corresponding UI consumer stub run in CI; a breaking API change fails the contract stage.",
+      "measurement_method": "CI contract-stage result on a deliberately breaking change in a validation run."
+    },
+    {
+      "id": "G-3",
+      "goal": "Provide an end-to-end browser test harness and enforce coverage.",
+      "success_measure": "A Playwright smoke spec runs against the Docker Compose stack, and JaCoCo enforces a minimum of 80% line coverage on backend modules, failing the build below threshold.",
+      "measurement_method": "Playwright run output and JaCoCo coverage-check gate result in CI."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Sam",
+      "role": "BrokerEdge Engineer (full-stack developer / pipeline developer agent)",
+      "goal": "Write unit, integration, contract, and E2E tests against a consistent, ready-made harness.",
+      "pain_point": "Reinventing database, Kafka, and browser test setup per feature is slow, flaky, and produces inconsistent coverage."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Provide shared Testcontainers configuration for PostgreSQL 16 and Kafka usable by both api-service and batch-service integration tests, with container reuse enabled to keep suite runtime low. H2 must not be present on any persistence test classpath per Section 16 AVOID-12.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Provide the JUnit 5 + Mockito + AssertJ unit-testing baseline and a `@SpringBootTest` integration-testing baseline with the `test` Spring profile wired per Section 15.6.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Configure Spring Cloud Contract producer-side verification in api-service and a generated consumer stub the UI test suite can run against.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Scaffold a Playwright E2E project (TypeScript) that runs on the host against the containerised stack, including config, a smoke spec, and a documented run command per Section 8.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Configure JaCoCo coverage reporting and a coverage-check gate enforcing at least 80% line coverage on backend modules, integrated into the Maven verify phase and the CI pipeline.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Provide the UI unit-test baseline (Vitest + React Testing Library) and Mock Service Worker (MSW) request mocking configuration for component tests.",
+      "priority": "Should",
+      "source": ["G-2", "G-3"]
+    }
+  ],
+  "non_functional_requirements": {
+    "performance": [
+      "Testcontainers reuse keeps the full backend integration suite runtime within CI budget by avoiding per-test container startup: the backend integration suite completes in under 10 minutes in CI."
+    ],
+    "observability": [
+      "Coverage reports are published as CI artifacts on every pipeline run."
+    ],
+    "compliance": [
+      "Persistence tests execute against PostgreSQL to faithfully exercise JSONB, gen_random_uuid(), CHECK constraints, and triggers per Section 16 AVOID-12."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Integration test runs against real PostgreSQL and Kafka",
+      "given": "the shared Testcontainers configuration",
+      "when": "a sample integration test persists an entity and publishes then consumes a Kafka message",
+      "then": ["the test passes against a real PostgreSQL 16 container and a real Kafka container"],
+      "and": ["no H2 driver is present on the persistence test classpath"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-3",
+      "scenario": "Contract verification catches a breaking API change",
+      "given": "a published producer contract for a sample endpoint",
+      "when": "the endpoint response shape is changed in a breaking way",
+      "then": ["the Spring Cloud Contract producer verification stage fails in CI"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-4",
+      "scenario": "Playwright smoke spec runs against the stack",
+      "given": "the running Docker Compose stack",
+      "when": "the Playwright smoke spec executes on the host",
+      "then": ["the spec loads the UI and asserts a known element is visible", "the run reports pass/fail per spec"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-5",
+      "scenario": "Coverage gate blocks under-covered code",
+      "given": "the JaCoCo coverage-check gate configured at 80% line coverage",
+      "when": "a backend module is built with coverage below 80%",
+      "then": ["the Maven verify phase fails with a coverage violation message"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Shared Testcontainers config (PostgreSQL 16, Kafka) with reuse enabled",
+      "JUnit 5 + Mockito + AssertJ unit baseline and @SpringBootTest integration baseline",
+      "Spring Cloud Contract producer verification and consumer stub generation",
+      "Playwright E2E project scaffold with smoke spec and run command",
+      "JaCoCo coverage reporting and 80% line-coverage gate",
+      "UI unit-test baseline (Vitest + RTL) and MSW mocking config"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Feature-specific test suites",
+        "rationale": "Each domain epic owns its own tests; this epic provides only the shared harness and gates."
+      },
+      {
+        "item": "Performance / load testing tooling",
+        "rationale": "Not required for v1; the focus is functional TDD gates."
+      },
+      {
+        "item": "The BrokerEdge Mock Service implementation",
+        "rationale": "The Mock Service is delivered within the epics that depend on it (BE-2, BE-3, BE-5); this epic only wires MSW for UI component tests."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "backend_unit_tests": "JUnit 5 + Mockito + AssertJ",
+      "integration_tests": "Testcontainers 1.19+ (PostgreSQL 16, Kafka)",
+      "contract_tests": "Spring Cloud Contract",
+      "e2e_tests": "Playwright 1.x (TypeScript)",
+      "ui_unit_tests": "Vitest + React Testing Library",
+      "ui_api_mocking": "Mock Service Worker (MSW) 2.x",
+      "coverage": "JaCoCo"
+    },
+    "existing_patterns": [
+      "Test-Driven Development (Red-Green-Refactor) per Section 8",
+      "Testcontainers container reuse via ~/.testcontainers.properties per Section 16 AVOID-12"
+    ],
+    "integration_points": [
+      "Docker Compose stack targeted by Playwright E2E",
+      "CI pipeline stages defined in BE-11 consume the coverage and contract gates"
+    ],
+    "deployment_constraints": [
+      "E2E tests run on the host against containers to keep the 16 GB machine within budget"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": ".",
+        "notes": "Testing harness spans multiple subtrees: /api-service and /batch-service (Testcontainers + contract tests), /ui (Vitest/RTL/MSW), and /e2e (Playwright). Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 8 (TDD Strategy), Section 15.6 (Spring Profiles), Section 16 AVOID-12 (no H2)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for test layering, profiles, and the no-H2 rule."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Testcontainers startup makes the suite too slow or flaky on the 16 GB machine and in CI.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Enable container reuse; share a single Postgres and Kafka container across the suite; pin image versions.",
+      "trigger": "Integration suite runtime or flake rate exceeds CI budget.",
+      "contingency": "Introduce a singleton container base class and reduce parallelism for infra-bound tests."
+    },
+    {
+      "id": "R-2",
+      "description": "Playwright E2E is flaky against an eventually-consistent stack (async Kafka + outbox relay).",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Use Playwright auto-waiting and explicit polling assertions for async outcomes; seed deterministic data.",
+      "trigger": "Intermittent E2E failures on order fill / audit-write timing.",
+      "contingency": "Add bounded retry with backoff on eventual-consistency assertions and expose a test-only readiness signal."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Runnable service skeletons, container images, and Docker Compose stack.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": true
+      }
+    ],
+    "external": [
+      {
+        "description": "Container runtime available for Testcontainers on developer machines and CI agents.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "blocking": true
+      }
+    ]
+  },
+  "definition_of_done": [
+    "Developer agents can write integration tests against real PostgreSQL and Kafka using a shared, documented harness.",
+    "A breaking API change is caught by the contract-testing stage before it reaches the UI.",
+    "An end-to-end smoke journey runs against the local stack and reports results.",
+    "Merges are blocked when backend line coverage falls below 80%."
+  ],
+  "story_outline": [
+    { "title": "Shared Testcontainers config for PostgreSQL and Kafka with reuse", "fr_refs": ["FR-1"] },
+    { "title": "Unit and integration test baselines with test profile", "fr_refs": ["FR-2"] },
+    { "title": "Spring Cloud Contract producer verification and consumer stub", "fr_refs": ["FR-3"] },
+    { "title": "Playwright E2E scaffold and smoke spec", "fr_refs": ["FR-4"] },
+    { "title": "JaCoCo coverage reporting and 80% gate", "fr_refs": ["FR-5"] },
+    { "title": "UI unit-test baseline with Vitest, RTL, and MSW", "fr_refs": ["FR-6"] }
+  ]
+}

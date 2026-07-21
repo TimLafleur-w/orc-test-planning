@@ -1,0 +1,247 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-4",
+  "slug": "portfolio-positions",
+  "title": "Portfolio & Positions — Summary, Holdings, P&L & Performance",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Core",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "An investor who has traded cannot see what they own or how it is performing. There is no consolidated portfolio summary, no list of positions with cost basis and market value, no unrealised profit-and-loss calculation, and no daily performance history. Without a portfolio view, trading outcomes are invisible and the investor cannot make informed decisions.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Give investors an accurate consolidated portfolio summary.",
+      "success_measure": "The summary returns total market value, cash balance, total account value, and dayChange, where dayChange is total value minus the most recent snapshot (0.00 when no snapshot exists), per Section 15.1.",
+      "measurement_method": "API test asserting summary fields and dayChange calculation with and without a prior snapshot."
+    },
+    {
+      "id": "G-2",
+      "goal": "Show each position with correct cost basis and unrealised P&L.",
+      "success_measure": "Each position returns quantity, average cost, current value, unrealised P&L, and unrealised P&L percent computed at query time per Section 15.1 (percent 0.00 when denominator is 0).",
+      "measurement_method": "API test asserting per-position P&L math against known inputs, including the zero-denominator case."
+    },
+    {
+      "id": "G-3",
+      "goal": "Show daily portfolio performance over time.",
+      "success_measure": "A performance series is returned from portfolio_snapshots, and responses carry a valuedAt timestamp so staleness is visible per Section 16 AT-4.",
+      "measurement_method": "API test asserting the performance series is sourced from snapshots and includes valuedAt."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "See holdings, current value, gains/losses, and daily performance at a glance.",
+      "pain_point": "Cannot judge investment performance without a consolidated, accurate portfolio view."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Provide GET /api/v1/portfolios/{accountId} returning totalMarketValue, totalCashBalance, totalAccountValue, dayChange, and a valuedAt timestamp, with ownership enforcement (403 for other users, 404 for unknown account), per Sections 6.1 and 15.1.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Provide GET /api/v1/portfolios/{accountId}/positions returning each position with ticker, quantity, averageCost, currentValue, unrealizedPnl, and unrealizedPnlPct, computing P&L at query time per Section 15.1.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Compute dayChange as current total account value minus the most recent portfolio_snapshots row for the account, returning 0.00 when no snapshot exists, per Section 15.1.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Compute unrealizedPnl (currentValue minus averageCost times quantity) and unrealizedPnlPct (unrealizedPnl divided by (averageCost times quantity) times 100, or 0.00 when the denominator is 0); unrealizedPnlPct is never stored, per Section 15.1.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Provide a performance series sourced from portfolio_snapshots suitable for a performance chart, scoped to the account and owner.",
+      "priority": "Should",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Include a valuedAt timestamp (from the latest snapshot) in portfolio responses so the UI can indicate data staleness, per Section 16 AT-4.",
+      "priority": "Should",
+      "source": ["G-3"]
+    }
+  ],
+  "non_functional_requirements": {
+    "security": [
+      "Portfolio and positions are readable only by the owning user; other users receive 403 and unknown accounts 404."
+    ],
+    "performance": [
+      "P&L values are computed at query time from positions and current prices without N+1 queries (native/aggregated queries where needed)."
+    ],
+    "observability": [
+      "Responses include valuedAt so consumers can detect and display staleness of end-of-day values."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Portfolio summary with a prior snapshot",
+      "given": "an investor with positions and a previous-day portfolio snapshot",
+      "when": "GET /api/v1/portfolios/{accountId} is called",
+      "then": ["the response includes totalMarketValue, totalCashBalance, totalAccountValue, dayChange, and valuedAt", "dayChange equals current total account value minus the most recent snapshot total value"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-3",
+      "scenario": "Portfolio summary with no prior snapshot",
+      "given": "an investor with positions but no portfolio snapshot yet",
+      "when": "GET /api/v1/portfolios/{accountId} is called",
+      "then": ["dayChange is 0.00"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-2",
+      "scenario": "Positions include correct unrealised P&L",
+      "given": "an investor holding a position with a known average cost and current value",
+      "when": "GET /api/v1/portfolios/{accountId}/positions is called",
+      "then": ["each position returns ticker, quantity, averageCost, currentValue, unrealizedPnl, and unrealizedPnlPct", "unrealizedPnlPct equals unrealizedPnl divided by (averageCost times quantity) times 100"],
+      "and": ["when averageCost times quantity is 0, unrealizedPnlPct is 0.00"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-1",
+      "scenario": "Cross-user portfolio access is forbidden",
+      "given": "a portfolio belonging to another user",
+      "when": "GET /api/v1/portfolios/{accountId} is called by a different authenticated user",
+      "then": ["the response is 403 access-denied"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-5",
+      "scenario": "Performance series comes from snapshots",
+      "given": "an account with multiple daily snapshots",
+      "when": "the performance series is requested",
+      "then": ["the series is returned from portfolio_snapshots in date order", "the response includes valuedAt"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Portfolio summary endpoint (market value, cash, total, dayChange, valuedAt)",
+      "Positions endpoint with query-time unrealised P&L and P&L percent",
+      "dayChange computation against the most recent snapshot with graceful empty handling",
+      "Performance series sourced from portfolio snapshots",
+      "Ownership enforcement across portfolio reads"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Realised P&L reporting and tax lots",
+        "rationale": "v1 focuses on holdings and unrealised P&L; realised P&L is recorded at position close but not reported here."
+      },
+      {
+        "item": "Intraday recomputation of stored position values",
+        "rationale": "Stored values are refreshed end-of-day by BE-6; intraday figures are computed at query time per Section 16 AT-4."
+      },
+      {
+        "item": "Multi-account aggregation / household views",
+        "rationale": "v1 supports a single cash account per investor."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "framework": "Spring Boot 3.x",
+      "orm": "Spring Data JPA / Hibernate with native queries where needed",
+      "database": "PostgreSQL 16",
+      "computation": "Query-time P&L per Section 15.1"
+    },
+    "existing_patterns": [
+      "Computed (non-stored) fields for unrealizedPnlPct (Section 15.1)",
+      "dayChange from portfolio_snapshots with 0.00 fallback",
+      "RFC-7807 error contract (Section 15.3)"
+    ],
+    "integration_points": [
+      "positions table from BE-3 and transactions ledger from BE-2",
+      "portfolio_snapshots produced by BE-6 valuation",
+      "current prices from BE-5 for query-time valuation"
+    ],
+    "deployment_constraints": [
+      "Reads should avoid N+1 queries to stay within the API memory and latency budget"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "api-service",
+        "notes": "Portfolio and positions read model in /api-service. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.1, Section 15.1 (dayChange, P&L formulas), Section 16 AT-4",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for portfolio formulas, snapshot dependency, and staleness handling."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Performance chart and dayChange are empty until BE-6 valuation has produced snapshots.",
+      "probability": "high",
+      "impact": "low",
+      "mitigation": "Design for graceful empty state (dayChange 0.00, empty series) and sequence BE-6 before BE-4 so the feature is fully testable on delivery.",
+      "trigger": "No portfolio_snapshots exist for an account at query time.",
+      "contingency": "Display an explicit empty/staleness state via valuedAt until the first valuation run."
+    },
+    {
+      "id": "R-2",
+      "description": "Query-time P&L across many positions causes N+1 queries and slow responses.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Use aggregated/native queries and fetch prices in bulk.",
+      "trigger": "Portfolio response latency grows with position count.",
+      "contingency": "Introduce a price cache for query-time valuation."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Positions and transactions produced by order fills.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-3",
+        "blocking": true
+      },
+      {
+        "description": "portfolio_snapshots and end-of-day position values from batch valuation (required for dayChange and performance chart).",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-6",
+        "blocking": true
+      },
+      {
+        "description": "Current security prices for query-time valuation.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-5",
+        "blocking": true
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "An investor can view an accurate consolidated portfolio summary including day change.",
+    "An investor can see each position with cost basis, market value, and unrealised P&L.",
+    "Daily performance history is available and clearly timestamped for staleness.",
+    "All portfolio reads are scoped to the owning investor."
+  ],
+  "story_outline": [
+    { "title": "Portfolio summary endpoint with dayChange", "fr_refs": ["FR-1", "FR-3", "FR-6"] },
+    { "title": "Positions endpoint with query-time P&L", "fr_refs": ["FR-2", "FR-4"] },
+    { "title": "Performance series from snapshots", "fr_refs": ["FR-5"] }
+  ]
+}

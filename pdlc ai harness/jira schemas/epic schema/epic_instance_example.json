@@ -1,0 +1,474 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "CABC-4821",
+  "slug": "client-portfolio-summary-dashboard",
+  "title": "Client Self-Service Portfolio Summary Dashboard",
+  "type": "feature",
+  "status": "approved",
+  "owner": "sarah.chen@client-abc.com",
+  "team": "client-digital-experience",
+  "target_quarter": "Q4-2026",
+  "jira_url": "https://client-abc.atlassian.net/browse/CABC-4821",
+
+  "problem_statement": "Clients currently have no single view of their total portfolio performance across all account types (brokerage, IRA, 529). They must navigate between three separate screens and manually reconcile figures, leading to a 22% call center spike on market-volatility days when clients cannot self-serve basic performance questions. Financial advisors spend an average of 8 minutes per call restating information the client could read themselves if it were surfaced clearly.",
+
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Reduce avoidable call center volume on market-volatility days",
+      "success_measure": "Call center volume attributable to portfolio-balance questions down ≥ 20% within 60 days of full rollout",
+      "measurement_method": "Compare call reason codes month-over-month via Genesys call-tagging report"
+    },
+    {
+      "id": "G-2",
+      "goal": "Increase client digital self-service engagement",
+      "success_measure": "Dashboard page views per active client ≥ 3 per month; session duration on dashboard ≥ 90 seconds median",
+      "measurement_method": "Adobe Analytics dashboard-page event tracking; 30-day rolling median"
+    },
+    {
+      "id": "G-3",
+      "goal": "Surface consolidated portfolio value without requiring manual reconciliation",
+      "success_measure": "100% of clients with ≥ 2 account types see a single aggregated total on the dashboard without navigating away",
+      "measurement_method": "Feature flag rollout verification + automated smoke test on account-aggregation endpoint"
+    }
+  ],
+
+  "personas": [
+    {
+      "name": "Retail Client",
+      "role": "Individual investor with one or more Client-ABC accounts (brokerage, IRA, or 529)",
+      "goal": "Understand total portfolio value and day-over-day performance in under 30 seconds without calling their advisor",
+      "pain_point": "Forced to visit three separate screens and add up balances manually; no single number tells them how they are doing today"
+    },
+    {
+      "name": "Financial Advisor",
+      "role": "Client-ABC advisor reviewing a client's account ahead of a scheduled review call",
+      "goal": "See the same summary view the client sees so conversations are grounded in shared numbers",
+      "pain_point": "Clients reference figures from the old separate screens; advisors cannot quickly find which screen the client is looking at"
+    },
+    {
+      "name": "Branch Office Administrator",
+      "role": "BOA who handles inbound calls when the advisor is unavailable",
+      "goal": "Answer basic portfolio-balance questions by navigating to the same view the client has",
+      "pain_point": "Currently must pull three separate screens while the client waits; no consolidated view exists in the internal tool"
+    }
+  ],
+
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "The dashboard must display a single aggregated total portfolio value summing all account types the authenticated client owns (brokerage, IRA, Roth IRA, 529, annuity)",
+      "priority": "Must",
+      "source": ["G-3", "stakeholder-retail-banking-VP"]
+    },
+    {
+      "id": "FR-2",
+      "description": "The dashboard must display day-over-day dollar change and percentage change for the aggregated total, updated as of market close each trading day",
+      "priority": "Must",
+      "source": ["G-1", "G-2", "stakeholder-retail-banking-VP"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Each individual account must be listed below the aggregate with its own balance, day change, and account type label",
+      "priority": "Must",
+      "source": ["G-3", "stakeholder-UX-research-2026-05"]
+    },
+    {
+      "id": "FR-4",
+      "description": "The dashboard must display a 12-month performance sparkline for the aggregated portfolio value",
+      "priority": "Should",
+      "source": ["G-2", "stakeholder-UX-research-2026-05"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Clients must be able to select a date range (1M, 3M, 6M, 1Y, YTD) to filter the sparkline and the performance delta figures",
+      "priority": "Should",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-6",
+      "description": "The Financial Advisor view of the dashboard must display the same aggregated figures as the client view when the advisor navigates to the client's account in the advisor portal",
+      "priority": "Must",
+      "source": ["G-1", "stakeholder-advisor-council-feedback"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Data must indicate its as-of timestamp (e.g. 'As of market close Jun 30, 2026') on every figure that is not real-time",
+      "priority": "Must",
+      "source": ["G-3", "compliance-disclosure-requirement-D-14"]
+    }
+  ],
+
+  "non_functional_requirements": {
+    "performance": [
+      "Dashboard initial load (all accounts aggregated) must complete within 2 seconds at p95 on a 4G mobile connection",
+      "Account aggregation API response must be ≤ 500ms p95 under a load of 50,000 concurrent authenticated sessions",
+      "Sparkline data must render within 1 second of date-range selection change (client-side, data already fetched)"
+    ],
+    "accessibility": [
+      "WCAG 2.1 AA compliance across all dashboard components",
+      "All charts must have a text-based alternative (data table toggle) for screen reader users",
+      "Color-alone must not be the sole indicator of positive/negative performance — use icons + color"
+    ],
+    "security": [
+      "All portfolio data served over TLS 1.3 minimum",
+      "Account balances must not appear in browser history, cache, or URL parameters",
+      "Advisor portal view requires explicit client-account-access permission scope in the OAuth token — no ambient access",
+      "No PII or account numbers in client-side analytics events (Adobe Analytics)"
+    ],
+    "scalability": [
+      "Account aggregation service must handle horizontal scale-out to support peak load on high-volatility market days (estimated 3x normal traffic)",
+      "Sparkline data endpoint must support pagination for clients with > 20 accounts"
+    ],
+    "availability": [
+      "Dashboard must be available 99.95% of the time during market hours (6 AM – 8 PM ET, Mon–Fri)",
+      "Degraded mode: if account aggregation service is unavailable, show individual account balances from cache with a staleness warning rather than a blank dashboard"
+    ],
+    "compliance": [
+      "Performance figures must include required FINRA disclosure language per compliance-disclosure-requirement-D-14",
+      "As-of timestamp required on all non-real-time figures (FR-7)",
+      "Audit log entry required for every advisor access to client dashboard view"
+    ],
+    "observability": [
+      "Emit dashboard_loaded, account_aggregation_failed, and date_range_selected events to Datadog RUM",
+      "P95 latency SLO alert in PagerDuty if account aggregation p95 exceeds 800ms for 5 consecutive minutes"
+    ]
+  },
+
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Authenticated client sees aggregated total on dashboard load",
+      "given": "an authenticated client with accounts of types brokerage, IRA, and 529 navigates to the portfolio dashboard",
+      "when": "the dashboard finishes loading",
+      "then": [
+        "a single aggregated total portfolio value is displayed prominently at the top of the page",
+        "the value equals the sum of all account balances as of the most recent market close",
+        "the value is formatted as USD currency with two decimal places"
+      ]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-2",
+      "scenario": "Day-over-day change is displayed with correct sign and color",
+      "given": "an authenticated client is on the portfolio dashboard",
+      "when": "the dashboard renders the aggregated performance section",
+      "then": [
+        "a dollar change figure is displayed showing the difference from the previous trading day's close",
+        "a percentage change figure is displayed alongside the dollar change",
+        "positive changes are indicated with an upward arrow icon and green text",
+        "negative changes are indicated with a downward arrow icon and red text"
+      ],
+      "and": [
+        "an icon (not color alone) distinguishes positive from negative to meet WCAG AA non-text contrast"
+      ]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-3",
+      "scenario": "Individual account breakdown is visible below aggregate",
+      "given": "an authenticated client with multiple accounts is on the portfolio dashboard",
+      "when": "the client scrolls below the aggregated total section",
+      "then": [
+        "each account is listed with its account type label (e.g. 'Traditional IRA', 'Brokerage')",
+        "each account shows its individual balance as of most recent market close",
+        "each account shows its individual day-over-day dollar and percentage change"
+      ]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-7",
+      "scenario": "As-of timestamp appears on all non-real-time figures",
+      "given": "an authenticated client is on the portfolio dashboard",
+      "when": "the dashboard renders any balance or performance figure",
+      "then": [
+        "a timestamp label reading 'As of market close [Month DD, YYYY]' appears adjacent to each figure",
+        "the timestamp reflects the actual last market close date, not the current date"
+      ]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-6",
+      "scenario": "Advisor sees the same aggregated view as the client",
+      "given": "a Financial Advisor with client-account-access permission navigates to a client's portfolio dashboard in the advisor portal",
+      "when": "the advisor dashboard view loads",
+      "then": [
+        "the aggregated total displayed matches the value the client would see for the same client account",
+        "an 'Advisor View' banner is displayed to distinguish the advisor's session from a client session"
+      ]
+    },
+    {
+      "id": "AC-6",
+      "fr_ref": "FR-6",
+      "scenario": "Advisor without permission cannot access client dashboard",
+      "given": "a Financial Advisor whose OAuth token does not include client-account-access scope for a specific client",
+      "when": "the advisor attempts to navigate to that client's portfolio dashboard",
+      "then": [
+        "a 403 Forbidden response is returned",
+        "the advisor is shown an 'Access not authorized' message and prompted to request access through the appropriate channel"
+      ]
+    }
+  ],
+
+  "scope": {
+    "in_scope": [
+      "Aggregated portfolio total across all Client-ABC account types (brokerage, IRA, Roth IRA, 529, annuity)",
+      "Day-over-day dollar and percentage change for aggregated total",
+      "Per-account balance breakdown with individual day change",
+      "12-month sparkline with date-range selector (1M, 3M, 6M, 1Y, YTD)",
+      "As-of timestamp on all non-real-time figures (compliance requirement D-14)",
+      "Financial Advisor portal view showing same aggregated data as client view",
+      "WCAG 2.1 AA compliance for all new dashboard components",
+      "Degraded-mode graceful fallback when aggregation service is unavailable"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Real-time intraday price streaming",
+        "rationale": "Requires a separate real-time data feed contract and infrastructure investment; tracked in CABC-5102"
+      },
+      {
+        "item": "Transaction history and trade confirmation display",
+        "rationale": "Separate concern owned by the Transactions team; this epic covers summary/performance only"
+      },
+      {
+        "item": "Tax-lot level detail and unrealized gain/loss breakdown",
+        "rationale": "Deferred to CABC-5210 (Tax Insights epic); adds significant complexity to the aggregation model"
+      },
+      {
+        "item": "Mobile native app (iOS/Android)",
+        "rationale": "Mobile app is a separate release track; this epic covers the responsive web experience only"
+      },
+      {
+        "item": "Branch Operations Center (BOC) bulk-client view",
+        "rationale": "Multi-client aggregation is a different data model; separate epic CABC-5044"
+      }
+    ]
+  },
+
+  "technical_context": {
+    "tech_stack": {
+      "frontend": "React 18, TypeScript 5, Vite 5",
+      "styling": "Client-ABC Design System (internal Tailwind-based component library v3.2)",
+      "state": "TanStack Query v5 for server state; Zustand for UI state",
+      "charting": "Recharts 2 (already approved in design system — do not introduce D3 directly)",
+      "auth": "OAuth 2.0 + PKCE via Client-ABC Identity Platform (Okta-backed)",
+      "api": "REST over HTTPS; account aggregation endpoint at /api/v3/portfolio/summary"
+    },
+    "existing_patterns": [
+      "Account card component already exists in the design system (ClientABCDesignSystem/AccountCard) — extend, do not fork",
+      "All data fetches use the useSuspenseQuery pattern from TanStack Query — do not use useEffect for data loading",
+      "Currency formatting must use the shared formatCurrency() utility from @client-abc/utils — do not roll a custom formatter",
+      "Feature flags managed via LaunchDarkly; flag name convention is client_abc_feature_<slug>"
+    ],
+    "integration_points": [
+      "GET /api/v3/portfolio/summary?clientId={id} — returns aggregated balance + per-account breakdown; owned by Accounts Platform team",
+      "GET /api/v3/portfolio/history?clientId={id}&range={range} — returns time-series data for sparkline; same owner",
+      "Adobe Analytics: fire client_abc_dashboard_loaded and client_abc_date_range_selected events on interaction",
+      "Datadog RUM: dashboard_loaded and account_aggregation_failed custom actions",
+      "Client-ABC Identity Platform: OAuth token must include portfolio:read scope for client data and portfolio:advisor_read for advisor access"
+    ],
+    "deployment_constraints": [
+      "Blue/green deployment via Client-ABC Kubernetes platform; all changes must be feature-flagged under client_abc_feature_client-portfolio-summary-dashboard for zero-downtime rollout",
+      "Lighthouse CI p95 LCP ≤ 2.5s gate runs on every PR — regressions block merge",
+      "No direct database access from the frontend BFF — all data via the Accounts Platform REST API",
+      "SOC 2 audit logging for advisor access events must be written to the existing audit-log Kafka topic before the API response is returned"
+    ]
+  },
+
+  "references": {
+    "figma": [
+      {
+        "label": "Portfolio Dashboard — Final UX Designs (all breakpoints)",
+        "url": "https://figma.com/file/ABC4821-dashboard-v3",
+        "notes": "Handoff-ready as of 2026-06-20; includes desktop, tablet, and mobile-web breakpoints. Component annotations link to Client-ABC Design System tokens."
+      },
+      {
+        "label": "Degraded Mode & Error State Designs",
+        "url": "https://figma.com/file/ABC4821-error-states",
+        "notes": "Covers aggregation-service-unavailable, partial-data, and session-timeout states"
+      }
+    ],
+    "architecture_diagrams": [
+      {
+        "label": "Account Aggregation Service — Current Architecture",
+        "url": "https://confluence.client-abc.com/display/ARCH/account-aggregation-current",
+        "notes": "Review before designing the API client layer; note the existing caching strategy at the BFF layer"
+      },
+      {
+        "label": "Client-ABC Client Portal — Target State System Context Diagram",
+        "url": "https://miro.com/app/board/CABC-portal-target-state",
+        "notes": "Shows identity platform, Adobe Analytics, and Datadog RUM integration points"
+      }
+    ],
+    "github_repos": [
+      {
+        "repo": "client-abc/client-portal-web",
+        "branch": "main",
+        "path": "src/features/accounts/",
+        "notes": "Existing account list page — the new dashboard replaces this. Study the existing data-fetch patterns before introducing new ones."
+      },
+      {
+        "repo": "client-abc/client-abc-design-system",
+        "branch": "main",
+        "path": "packages/components/AccountCard/",
+        "notes": "AccountCard component to extend for the per-account breakdown rows"
+      },
+      {
+        "repo": "client-abc/accounts-platform-api",
+        "branch": "main",
+        "path": "openapi/portfolio-summary.yaml",
+        "notes": "OpenAPI spec for the /api/v3/portfolio/summary and /history endpoints — read this before building the API client"
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "Compliance Disclosure Requirement D-14 — Performance Figures",
+        "url": "https://confluence.client-abc.com/display/COMPLIANCE/D-14",
+        "notes": "Mandates as-of timestamp and specific FINRA disclosure language on all performance figures"
+      },
+      {
+        "label": "Client-ABC Accessibility Standards — WCAG AA Implementation Guide",
+        "url": "https://confluence.client-abc.com/display/A11Y/wcag-aa-guide",
+        "notes": "Internal implementation guide with Client-ABC-specific patterns for chart accessibility"
+      }
+    ],
+    "examples": [
+      {
+        "label": "Reference: Settings Page Redesign (approved TanStack Query + Suspense pattern)",
+        "url": "https://github.com/client-abc/client-portal-web/pull/1847",
+        "notes": "Use this PR as the reference implementation for data fetching patterns — reviewed and approved by architecture"
+      },
+      {
+        "label": "Reference: LaunchDarkly feature flag integration pattern",
+        "url": "https://github.com/client-abc/client-portal-web/pull/1923",
+        "notes": "Shows the approved pattern for wrapping features in LD flags with a fallback — copy this, do not invent a new pattern"
+      }
+    ],
+    "existing_apis": [
+      {
+        "label": "Portfolio Summary API — OpenAPI Spec",
+        "url": "https://api-catalog.client-abc.com/portfolio/summary/v3",
+        "notes": "Live API catalog entry; includes sandbox environment URL and auth token scopes required"
+      },
+      {
+        "label": "Portfolio History API — OpenAPI Spec",
+        "url": "https://api-catalog.client-abc.com/portfolio/history/v3",
+        "notes": "Supports range param: 1M, 3M, 6M, 1Y, YTD. Max data points per response: 365."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Account aggregation API latency may exceed 2s p95 SLO on high-volatility market days when all clients refresh simultaneously",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Implement client-side stale-while-revalidate caching via TanStack Query (5-minute TTL); BFF response caching layer already exists — confirm cache TTL with Accounts Platform team before sprint 1",
+      "trigger": "Accounts Platform p95 latency alert fires in Datadog for ≥ 3 consecutive minutes during market hours",
+      "contingency": "Activate degraded mode: serve last-cached values with staleness warning; suppress sparkline data fetch to reduce API load"
+    },
+    {
+      "id": "R-2",
+      "description": "Compliance disclosure language (D-14) interpretation may require legal review and delay the as-of timestamp implementation",
+      "probability": "low",
+      "impact": "high",
+      "mitigation": "Engage compliance team in sprint 1 design review; get written sign-off on the proposed as-of timestamp format before implementation begins",
+      "trigger": "Compliance team raises an objection to the proposed disclosure format after implementation is underway",
+      "contingency": "Feature-flag the performance delta figures independently from the balance display; can ship balance view while disclosure language is finalized"
+    },
+    {
+      "id": "R-3",
+      "description": "Client-ABC Design System AccountCard component may not support all required display variants (annuity account type label, degraded-mode state) without modifications",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "File a design system component request in sprint 1; schedule a pairing session with the design system team to scope the extension",
+      "trigger": "Design system team confirms the required variants cannot be added within the epic timeline",
+      "contingency": "Fork AccountCard as a local component within client-portal-web for this epic; create a tech-debt ticket to merge back into the design system post-launch"
+    }
+  ],
+
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Accounts Platform team must expose the /api/v3/portfolio/summary endpoint with the aggregated total field — currently returns per-account data only",
+        "owner": "accounts-platform-team@client-abc.com",
+        "epic": "CABC-4799",
+        "blocking": true,
+        "eta": "2026-08-01"
+      },
+      {
+        "description": "Client-ABC Identity Platform team must issue the portfolio:advisor_read OAuth scope for the advisor portal integration (FR-6)",
+        "owner": "identity-platform-team@client-abc.com",
+        "epic": "CABC-4803",
+        "blocking": true,
+        "eta": "2026-08-15"
+      },
+      {
+        "description": "Design System team AccountCard component extension for annuity account type and degraded-mode variant",
+        "owner": "design-system-team@client-abc.com",
+        "epic": null,
+        "blocking": false,
+        "eta": "2026-08-22"
+      }
+    ],
+    "external": [
+      {
+        "description": "Adobe Analytics Client-ABC implementation team must provision the client_abc_dashboard_loaded and client_abc_date_range_selected custom event slots in the analytics schema",
+        "owner": "analytics-impl@client-abc.com",
+        "epic": null,
+        "blocking": false,
+        "eta": "2026-08-10"
+      }
+    ]
+  },
+
+  "definition_of_done": [
+    "Dashboard is live for 100% of authenticated clients (LaunchDarkly flag fully rolled out, not just canary)",
+    "Call center volume for portfolio-balance-question call reason code is down ≥ 20% vs. 60-day pre-launch baseline (measured at 60 days post full rollout)",
+    "WCAG 2.1 AA audit passes with zero critical violations on all dashboard components (axe-core CI gate + manual screen reader test)",
+    "Lighthouse CI p95 LCP ≤ 2.5s and p95 TBT ≤ 300ms gates pass on production traffic sample",
+    "Compliance team has provided written sign-off on as-of timestamp and disclosure language (D-14)",
+    "All stories accepted by the product owner in JIRA and linked to this epic",
+    "Runbook for degraded-mode and rollback procedure documented in Confluence and reviewed by on-call team"
+  ],
+
+  "story_outline": [
+    {
+      "title": "Portfolio summary aggregate total — layout shell and data fetch",
+      "fr_refs": ["FR-1", "FR-7"],
+      "notes": "Wire up TanStack Query to /api/v3/portfolio/summary; render aggregate total and as-of timestamp; no sparkline yet"
+    },
+    {
+      "title": "Day-over-day performance delta — dollar and percentage change display",
+      "fr_refs": ["FR-2"],
+      "notes": "Depends on story 1; add delta figures with icon+color treatment meeting WCAG AA"
+    },
+    {
+      "title": "Per-account breakdown rows below aggregate total",
+      "fr_refs": ["FR-3"],
+      "notes": "Extend AccountCard from design system; one row per account with type label, balance, day change"
+    },
+    {
+      "title": "12-month sparkline with date-range selector",
+      "fr_refs": ["FR-4", "FR-5"],
+      "notes": "Recharts sparkline; wire to /api/v3/portfolio/history; date-range selector (1M 3M 6M 1Y YTD); text-table toggle for a11y"
+    },
+    {
+      "title": "Financial Advisor portal view — client dashboard with advisor banner",
+      "fr_refs": ["FR-6"],
+      "notes": "Requires portfolio:advisor_read scope from Identity Platform (dependency CABC-4803); advisor-view banner; 403 handling"
+    },
+    {
+      "title": "Degraded-mode fallback when aggregation service is unavailable",
+      "fr_refs": ["FR-1", "FR-2", "FR-3"],
+      "notes": "Show stale cached per-account balances with staleness warning; suppress sparkline; R-1 contingency"
+    },
+    {
+      "title": "LaunchDarkly feature flag integration and phased rollout wiring",
+      "fr_refs": ["FR-1"],
+      "notes": "Gate entire dashboard under client_abc_feature_client-portfolio-summary-dashboard flag; canary → 10% → 50% → 100% rollout plan"
+    }
+  ]
+}

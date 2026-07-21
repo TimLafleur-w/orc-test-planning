@@ -1,0 +1,342 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-3",
+  "slug": "order-management",
+  "title": "Order Management — Place, Clear, Cancel & Track Orders",
+  "type": "feature",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Core",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "An investor with a funded account still cannot trade, which is the core purpose of BrokerEdge. There is no way to place market or limit orders, no clearing lifecycle to fill or reject them, no way to cancel a working order, and no history to track outcomes. Without order management, the account balance and security catalogue serve no purpose and positions can never be created.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Let an investor place validated market and limit orders.",
+      "success_measure": "Buy and sell market and limit orders are accepted only when they pass all business rules in Section 15.1 (buying power, no short selling, active account, quantity and price bounds).",
+      "measurement_method": "Integration tests covering each validation rule for both order types and sides."
+    },
+    {
+      "id": "G-2",
+      "goal": "Fill or reject orders through a realistic asynchronous clearing lifecycle.",
+      "success_measure": "A placed order is submitted to clearing, and a fill updates order status, cash balance, positions (weighted average cost), and the ledger exactly once; a rejection transitions the order to REJECTED with a reason.",
+      "measurement_method": "End-to-end test from placement through a Mock Service fill and through a rejection, asserting resulting state."
+    },
+    {
+      "id": "G-3",
+      "goal": "Let an investor cancel working orders and review order history.",
+      "success_measure": "Orders in PENDING/OPEN can be cancelled, terminal orders cannot, and order history is retrievable with pagination and sorting.",
+      "measurement_method": "API tests for cancel success, terminal-state rejection, and paginated history."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Alex",
+      "role": "Self-directed Retail Investor",
+      "goal": "Buy and sell securities and track the status and history of orders.",
+      "pain_point": "Without trading and order tracking there is no way to build or manage a portfolio."
+    },
+    {
+      "name": "Riya",
+      "role": "Compliance & Audit Analyst",
+      "goal": "Trace every order placement, fill, rejection, and cancellation to an immutable record.",
+      "pain_point": "Untraceable trading activity cannot be reviewed or reconciled."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Provide POST /api/v1/orders accepting market and limit, buy and sell orders validated per Section 15.2 and the business rules in Section 15.1, with these concrete constraints: quantity is an integer 1–10,000; limitPrice is required when type=LIMIT and must be null when type=MARKET, with range $0.01–$9,999,999.99; account must be ACTIVE; buying power — a MARKET BUY requires cashBalance ≥ quantity × current mock price and a LIMIT BUY requires cashBalance ≥ quantity × limitPrice; a SELL requires an existing position with quantity ≥ the order quantity (no short selling for CASH accounts). Accepted orders persist with status PENDING and return 202.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Submit accepted orders to clearing via the transactional outbox and the Mock Service clearing endpoint, protected by a circuit breaker with the fallback behaviour in Section 16 AVOID-9 (PENDING_CLEARING and retry, then REJECTED with CLEARING_UNAVAILABLE on exhaustion).",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Bridge Mock Service SSE clearing events (order.filled / order.rejected) to Kafka via MockClearingEventSubscriber using the payloads and reconnect strategy in Section 15.9.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "On fill (OrderFilledConsumer): set order FILLED with executedPrice, insert a TRADE transaction, adjust cashBalance, and create/update the position using the weighted-average-cost maths in Section 15.1 — on a BUY fill: newAverageCost = ((currentQty × currentAvgCost) + (fillQty × executedPrice)) / (currentQty + fillQty); on a SELL fill: averageCost is unchanged, quantity is reduced by fillQty, and realisedPnl = (executedPrice − averageCost) × fillQty; when the resulting quantity = 0 the position is closed/deleted. All updates are idempotent and ordered per aggregate (Section 16 FX-4).",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Provide DELETE /api/v1/orders/{id} cancelling PENDING/OPEN orders (204) and rejecting cancellation of terminal orders with 409 order-in-terminal-state; emit ORDER_CANCELLED audit event.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Provide GET /api/v1/orders (paginated, sortable per Section 15.2) and GET /api/v1/orders/{id} with ownership enforcement, exposing status tracking across the lifecycle.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Honour an Idempotency-Key header on order placement so a duplicate submission does not create a second order, per Section 16 AVOID-5.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-8",
+      "description": "Add a stuck-order reconciliation sweep for orders in PENDING/OPEN beyond 15 minutes that queries Mock Service clearing status and resolves them, per Section 16 AVOID-10.",
+      "priority": "Should",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-9",
+      "description": "Emit order lifecycle business and audit events (ORDER_PLACED, ORDER_FILLED, ORDER_REJECTED, ORDER_REJECTED_INSUFFICIENT_FUNDS, ORDER_CANCELLED, POSITION_UPDATED/POSITION_CLOSED) via the audit infrastructure.",
+      "priority": "Must",
+      "source": ["G-2", "G-3"]
+    },
+    {
+      "id": "FR-10",
+      "description": "Author and own the Flyway migrations for this epic: `V004__create_orders.sql` (orders table including the `settled` boolean column and indexes on account_id and status) and `V006__create_positions.sql` (positions table, composite unique on (account_id, security_id)), per Section 6.2.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-11",
+      "description": "Own and implement the Mock Service clearing endpoints this epic depends on in /mock-service: order submission (REST), the SSE clearing stream emitting order.filled / order.rejected per Section 15.9, and an order clearing-status endpoint used by the stuck-order reconciliation sweep.",
+      "priority": "Must",
+      "source": ["G-2"]
+    }
+  ],
+  "non_functional_requirements": {
+    "security": [
+      "Orders are placed and read only against accounts owned by the authenticated user; cross-user access returns 403."
+    ],
+    "compliance": [
+      "Every order placement, fill, rejection, and cancellation produces an immutable audit record.",
+      "Buying-power and short-sell rules are enforced deterministically per Section 15.1."
+    ],
+    "availability": [
+      "A clearing-service outage does not exhaust API threads: calls use a circuit breaker with defined fallbacks (Section 16 AVOID-9).",
+      "Orders never remain permanently stuck: a reconciliation sweep resolves PENDING/OPEN orders past the timeout (Section 16 AVOID-10)."
+    ],
+    "performance": [
+      "The order write path performs no synchronous clearing call; clearing submission is asynchronous via the outbox (Section 16 AVOID-3)."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Place a valid market buy",
+      "given": "an authenticated investor with an ACTIVE account and sufficient buying power",
+      "when": "POST /api/v1/orders is called with a market buy for a valid security and quantity",
+      "then": ["the response is 202 with status PENDING", "an order row is persisted with status PENDING"],
+      "and": ["an ORDER_PLACED audit event is recorded"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-1",
+      "scenario": "Insufficient buying power is rejected",
+      "given": "an account whose cashBalance is below the required amount for a market buy",
+      "when": "POST /api/v1/orders is called",
+      "then": ["the response is 422 insufficient-funds", "no order is created"],
+      "and": ["an ORDER_REJECTED_INSUFFICIENT_FUNDS audit event is recorded"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-1",
+      "scenario": "Short selling is prohibited for cash accounts",
+      "given": "a sell order for more shares than the account holds",
+      "when": "POST /api/v1/orders is called",
+      "then": ["the response is 422 position-insufficient", "no order is created"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-4",
+      "scenario": "Fill updates positions, cash, and ledger once",
+      "given": "a PENDING market buy that clears",
+      "when": "the Mock Service emits order.filled and the fill is processed",
+      "then": ["the order becomes FILLED with executedPrice", "a TRADE transaction is recorded and cashBalance decreases by quantity times executedPrice", "the position is created or updated using weighted average cost"],
+      "and": ["an ORDER_FILLED audit event is recorded and the fill is not double-applied on redelivery"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-5",
+      "scenario": "Cancel a working order",
+      "given": "an order in PENDING or OPEN owned by the investor",
+      "when": "DELETE /api/v1/orders/{id} is called",
+      "then": ["the response is 204 and the order becomes CANCELLED"],
+      "and": ["cancelling a FILLED order returns 409 order-in-terminal-state"]
+    },
+    {
+      "id": "AC-6",
+      "fr_ref": "FR-2",
+      "scenario": "Clearing outage degrades gracefully",
+      "given": "the Mock Service clearing endpoint is unavailable",
+      "when": "an accepted order is submitted to clearing and retries are exhausted",
+      "then": ["the order transitions to REJECTED with reason CLEARING_UNAVAILABLE", "API request threads are not exhausted by blocking clearing calls"]
+    },
+    {
+      "id": "AC-7",
+      "fr_ref": "FR-7",
+      "scenario": "Idempotent order placement",
+      "given": "an order request carrying an Idempotency-Key already processed",
+      "when": "the identical request is submitted again",
+      "then": ["the original response is returned and no second order is created"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Market and limit order placement with full business-rule validation",
+      "Asynchronous clearing submission via outbox with circuit-breaker fallbacks",
+      "SSE-to-Kafka clearing bridge (fills and rejections)",
+      "Fill processing: order status, ledger, cash, and weighted-average-cost positions",
+      "Order cancellation with terminal-state protection",
+      "Order status tracking and paginated history with ownership checks",
+      "Idempotency-Key on placement",
+      "Stuck-order reconciliation sweep",
+      "Order lifecycle business and audit events"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Margin trading and short selling",
+        "rationale": "CASH accounts only; short selling is prohibited in v1 per Section 15.1."
+      },
+      {
+        "item": "Advanced order types (stop, stop-limit, trailing, GTC/IOC)",
+        "rationale": "v1 supports only market and limit orders."
+      },
+      {
+        "item": "Partial fills",
+        "rationale": "The mock clearing model fills orders in full or rejects them in v1."
+      },
+      {
+        "item": "End-of-day settlement of fills",
+        "rationale": "The settled flag lifecycle and settlement are handled by BE-6 batch processing."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "framework": "Spring Boot 3.x",
+      "orm": "Spring Data JPA / Hibernate",
+      "database": "PostgreSQL 16",
+      "events": "Kafka (brokerEdge.orders) + transactional outbox",
+      "resilience": "Resilience4j circuit breaker",
+      "streaming_client": "Spring WebClient SSE",
+      "external_mock": "BrokerEdge Mock Service clearing (SSE + REST)"
+    },
+    "existing_patterns": [
+      "AuditableUseCase base class (BE-7)",
+      "Transactional outbox for clearing submission and events",
+      "Aggregate-id partition keys for ordered order events (Section 16 FX-4)",
+      "Weighted-average-cost position maths (Section 15.1)"
+    ],
+    "integration_points": [
+      "Mock Service clearing REST endpoint and SSE stream (Section 15.9)",
+      "Account balance and positions (BE-2 accounts, positions table)",
+      "Security catalogue and prices (BE-5)"
+    ],
+    "deployment_constraints": [
+      "MockClearingEventSubscriber maintains a resilient SSE connection with 5-second reconnect backoff"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "api-service",
+        "notes": "Order domain, clearing bridge, and fill processing in /api-service; clearing SSE+REST mock in /mock-service. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.1/6.3, Section 15.1 (business rules), Section 15.9 (SSE), Section 16 (FX-4, AVOID-1/3/5/9/10)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for order rules, clearing lifecycle, fill processing, and resilience."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "SSE clearing events lost during the reconnect window leave orders stuck in PENDING.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Implement the stuck-order reconciliation sweep (FR-8) and resilient reconnect per Section 15.9.",
+      "trigger": "Orders remain PENDING/OPEN beyond the 15-minute threshold in tests.",
+      "contingency": "Replay missed fills by polling Mock Service clearing status after reconnect."
+    },
+    {
+      "id": "R-2",
+      "description": "Out-of-order or redelivered fill events double-count positions or cash.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Use aggregate-id partition keys for ordering and make fill processing idempotent per Section 16 FX-4/A-9.",
+      "trigger": "Position quantity or cash mismatches under redelivery tests.",
+      "contingency": "Add a processed-event guard keyed by event id in the consumer."
+    },
+    {
+      "id": "R-3",
+      "description": "Real-time fill position updates race with EOD settlement (BE-6) writing the same positions.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Coordinate via the settled flag and specify isolation/locking for the batch read per Section 16 A-9.",
+      "trigger": "Position discrepancies when settlement runs against unsettled fills.",
+      "contingency": "Serialize settlement with SELECT FOR UPDATE SKIP LOCKED on unsettled orders."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Funded accounts, balances, positions table, and ownership model.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-2",
+        "blocking": true
+      },
+      {
+        "description": "Security catalogue and prices for validation and pricing.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-5",
+        "blocking": true
+      },
+      {
+        "description": "Event and audit infrastructure, outbox, and ordered topics.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-7",
+        "blocking": true
+      },
+      {
+        "description": "mock-service project scaffold (this epic implements its own endpoints within it)",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": false
+      }
+    ],
+    "external": []
+  },
+  "definition_of_done": [
+    "An investor can place valid market and limit orders and is blocked from invalid ones with clear reasons.",
+    "Orders clear asynchronously, and fills correctly update status, cash, ledger, and positions exactly once.",
+    "An investor can cancel working orders and cannot cancel terminal ones.",
+    "Order status and history are retrievable and scoped to the owner.",
+    "Clearing outages and lost events degrade gracefully without stuck orders or thread exhaustion.",
+    "Every order lifecycle event is recorded in the audit trail."
+  ],
+  "story_outline": [
+    { "title": "Place order with business-rule validation", "fr_refs": ["FR-1", "FR-7"] },
+    { "title": "Asynchronous clearing submission with circuit breaker", "fr_refs": ["FR-2"] },
+    { "title": "SSE-to-Kafka clearing bridge", "fr_refs": ["FR-3"] },
+    { "title": "Fill processing: ledger, cash, positions, average cost", "fr_refs": ["FR-4", "FR-9"] },
+    { "title": "Cancel order with terminal-state protection", "fr_refs": ["FR-5"] },
+    { "title": "Order status tracking and history", "fr_refs": ["FR-6"] },
+    { "title": "Stuck-order reconciliation sweep", "fr_refs": ["FR-8"] },
+    { "title": "Author orders and positions migrations", "fr_refs": ["FR-10"] },
+    { "title": "Implement Mock Service clearing endpoints (REST + SSE + status)", "fr_refs": ["FR-11"] }
+  ]
+}

@@ -1,0 +1,291 @@
+{
+  "schema": "orc-test.epic/v1",
+  "epic_id": "BE-7",
+  "slug": "event-bus-audit-infrastructure",
+  "title": "Event Bus & Audit Infrastructure — Outbox, Kafka Topics & Immutable Audit Trail",
+  "type": "platform",
+  "status": "draft",
+  "owner": "timothy.lafleur@orc-test.com",
+  "team": "BrokerEdge Platform",
+  "target_quarter": "Q3-2026",
+  "problem_statement": "Every domain capability in BrokerEdge must reliably emit business events and produce a complete, tamper-evident audit trail, but there is no messaging or audit foundation for them to build on. Without a transactional outbox, configured Kafka topics with a schema contract, an immutable audit log, and a shared base for auditable operations, each domain epic would risk losing events on failure and would produce an inconsistent or incomplete audit record — unacceptable for a financial application. This infrastructure must exist before any domain epic that emits an event or an audit record.",
+  "goals": [
+    {
+      "id": "G-1",
+      "goal": "Guarantee at-least-once delivery of domain events without distributed transactions.",
+      "success_measure": "Business events written via the transactional outbox in the same DB transaction as the state change are relayed to Kafka and are never lost across an induced Kafka outage during the write.",
+      "measurement_method": "Integration test that commits a state change with Kafka down, restores Kafka, and asserts the event is subsequently delivered exactly as written."
+    },
+    {
+      "id": "G-2",
+      "goal": "Provide a governed, schema-validated event bus.",
+      "success_measure": "All required Kafka topics exist with defined partitioning, and Schema Registry enforces BACKWARD compatibility so a breaking schema change is rejected at registration.",
+      "measurement_method": "Topic listing plus a registry compatibility test that rejects an incompatible schema."
+    },
+    {
+      "id": "G-3",
+      "goal": "Deliver a complete and immutable audit trail.",
+      "success_measure": "A single writer persists audit events to an insert-only audit_log that rejects UPDATE and DELETE at the database level; every audit event produced by a domain operation appears exactly once.",
+      "measurement_method": "Database test asserting UPDATE/DELETE are blocked, and a consumer test asserting one audit_log row per emitted audit event."
+    }
+  ],
+  "personas": [
+    {
+      "name": "Sam",
+      "role": "BrokerEdge Engineer (full-stack developer / pipeline developer agent)",
+      "goal": "Emit business and audit events from any use case using a shared, reliable pattern.",
+      "pain_point": "Hand-rolling event publishing per feature risks lost events and divergent audit behaviour."
+    },
+    {
+      "name": "Riya",
+      "role": "Compliance & Audit Analyst",
+      "goal": "Retrieve a complete, immutable, time-ordered record of every material action in the system.",
+      "pain_point": "An incomplete or mutable audit trail cannot satisfy regulatory review."
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-1",
+      "description": "Implement the Transactional Outbox: a `domain_events_outbox` table (Flyway V009) written in the same DB transaction as the business state change, and an `OutboxRelayScheduler` that polls unpublished rows in bounded batches and publishes them to Kafka, marking them published on success, per Sections 6.3 and 16 AT-3.",
+      "priority": "Must",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-2",
+      "description": "Create all Kafka topics (`brokerEdge.orders`, `brokerEdge.accounts`, `brokerEdge.market-data`, `brokerEdge.audit`, and notification topic) with documented partition counts, and use the aggregate id as the partition key for order and account topics to preserve per-aggregate ordering per Section 16 FX-4.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-3",
+      "description": "Define and register the shared Avro `EventEnvelope` schema and the per-event payload schemas (Section 6.3), and configure Schema Registry compatibility to BACKWARD per Section 16 AVOID-8.",
+      "priority": "Must",
+      "source": ["G-2"]
+    },
+    {
+      "id": "FR-4",
+      "description": "Provide the `AuditableUseCase` base class and the audit event model so any use case writes both its business outbox event and its audit outbox event in the same DB transaction, per Section 7.4.",
+      "priority": "Must",
+      "source": ["G-1", "G-3"]
+    },
+    {
+      "id": "FR-5",
+      "description": "Create the insert-only `audit_log` table with role-based access and a database immutability trigger rejecting UPDATE and DELETE (Flyway V011–V013), and implement `AuditLogConsumer` as the sole writer to audit_log, running under a dedicated consumer group (`brokerEdge-audit-writer`) per Section 7.4.",
+      "priority": "Must",
+      "source": ["G-3"]
+    },
+    {
+      "id": "FR-6",
+      "description": "Implement the mock `NotificationEventConsumer` that consumes notification events and calls the Mock Service notification endpoint, with notification failures treated as non-fatal per Section 16 AVOID-9. BE-7 owns and implements that Mock Service notification/email endpoint itself in `/mock-service` (the endpoint consumed by BE-1 registration and BE-2 funding notifications).",
+      "priority": "Should",
+      "source": ["G-1"]
+    },
+    {
+      "id": "FR-7",
+      "description": "Instrument outbox depth (rows where published_at is null) and per-consumer-group lag as metrics, with a documented alert threshold for the audit consumer group per Section 16 (B-6): alert when the audit-writer consumer lag exceeds 1,000 messages OR 60 seconds, whichever comes first.",
+      "priority": "Should",
+      "source": ["G-2", "G-3"]
+    },
+    {
+      "id": "FR-8",
+      "description": "Author and own the Flyway migrations for this epic: `V009__create_outbox.sql` (domain_events_outbox), `V011__create_audit_log.sql`, `V012__audit_log_roles.sql`, and `V013__audit_log_immutability_trigger.sql`, per Section 6.2. Because ingestion order differs from migration version order, this relies on Flyway out-of-order mode (configured by BE-11) and fresh CI databases.",
+      "priority": "Must",
+      "source": ["G-1", "G-3"]
+    }
+  ],
+  "non_functional_requirements": {
+    "performance": [
+      "The outbox relay query is bounded by an explicit batch size (LIMIT) to avoid unbounded publish attempts per Section 16 AT-3."
+    ],
+    "availability": [
+      "A transient Kafka outage during a business transaction never loses the event; it is relayed once Kafka recovers."
+    ],
+    "compliance": [
+      "audit_log is insert-only and enforced immutable at the database level via role restrictions and a trigger.",
+      "Every material domain action produces exactly one corresponding audit_log entry."
+    ],
+    "observability": [
+      "Outbox backlog depth and consumer-group lag are exposed as metrics; the audit-writer lag alert fires when lag exceeds 1,000 messages OR 60 seconds, whichever comes first (Section 16 B-6)."
+    ],
+    "security": [
+      "Only the audit-writer role may insert into audit_log; no role may update or delete it."
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "fr_ref": "FR-1",
+      "scenario": "Event survives a Kafka outage during the write",
+      "given": "a business state change that writes a domain event to the outbox in the same transaction while Kafka is unavailable",
+      "when": "the transaction commits and Kafka is later restored",
+      "then": ["the OutboxRelayScheduler publishes the event to the correct topic after recovery", "the event is delivered exactly as written and marked published"]
+    },
+    {
+      "id": "AC-2",
+      "fr_ref": "FR-3",
+      "scenario": "Schema Registry rejects a breaking change",
+      "given": "a registered event payload schema under BACKWARD compatibility",
+      "when": "a schema version that removes a required field is submitted",
+      "then": ["the Schema Registry rejects the registration", "producers using the incompatible schema fail fast rather than corrupting consumers"]
+    },
+    {
+      "id": "AC-3",
+      "fr_ref": "FR-5",
+      "scenario": "Audit log is immutable at the database level",
+      "given": "an existing row in audit_log",
+      "when": "an UPDATE or DELETE is attempted against that row",
+      "then": ["the database rejects the operation via the immutability trigger and role restrictions"]
+    },
+    {
+      "id": "AC-4",
+      "fr_ref": "FR-5",
+      "scenario": "Audit events are written exactly once by the sole writer",
+      "given": "audit events published to brokerEdge.audit",
+      "when": "the AuditLogConsumer processes them under the brokerEdge-audit-writer group",
+      "then": ["one audit_log row is written per audit event", "no component other than AuditLogConsumer writes to audit_log"]
+    },
+    {
+      "id": "AC-5",
+      "fr_ref": "FR-2",
+      "scenario": "Per-aggregate event ordering is preserved",
+      "given": "multiple events for the same aggregate id published to an ordered topic",
+      "when": "the events are produced using the aggregate id as the partition key",
+      "then": ["all events for that aggregate land on the same partition and are consumed in produced order"]
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Transactional outbox table and OutboxRelayScheduler with bounded batch relay",
+      "Kafka topic creation with partition-key strategy for ordered topics",
+      "Avro EventEnvelope and payload schemas with BACKWARD Schema Registry compatibility",
+      "AuditableUseCase base class and audit event model",
+      "Insert-only audit_log with immutability trigger, role restrictions, and AuditLogConsumer as sole writer",
+      "Mock NotificationEventConsumer (non-fatal failures)",
+      "Outbox depth and consumer-group lag metrics with audit alert threshold"
+    ],
+    "out_of_scope": [
+      {
+        "item": "Domain event producers (orders, accounts, market data, auth events)",
+        "rationale": "Producers are implemented by their owning domain epics (BE-1, BE-2, BE-3, BE-5); this epic provides the mechanism they use."
+      },
+      {
+        "item": "Batch-sourced audit durability (batch_audit_outbox)",
+        "rationale": "v1 batch publishes audit events directly to Kafka per Section 16 AT-3; a batch outbox is a Phase 2 exit item."
+      },
+      {
+        "item": "Extraction of audit/notification consumers into separate services",
+        "rationale": "v1 runs them intra-process per Section 16 AT-2; extraction is a Phase 2 item."
+      }
+    ]
+  },
+  "technical_context": {
+    "tech_stack": {
+      "event_streaming": "Apache Kafka 3.x (KRaft)",
+      "serialization": "Avro via Confluent Schema Registry",
+      "database": "PostgreSQL 16",
+      "orm": "Spring Data JPA / Hibernate",
+      "migrations": "Flyway 10.x",
+      "messaging": "Spring Kafka"
+    },
+    "existing_patterns": [
+      "Transactional Outbox pattern (Section 6.3)",
+      "Sole-writer audit principle: only AuditLogConsumer writes audit_log (Section 7.4)",
+      "AuditableUseCase base class writing business + audit outbox events in one transaction"
+    ],
+    "integration_points": [
+      "Kafka topics consumed by domain consumers and the audit writer",
+      "Schema Registry for Avro contract enforcement",
+      "Mock Service notification endpoint consumed by NotificationEventConsumer"
+    ],
+    "deployment_constraints": [
+      "Single-node Kafka locally (partitions:1, replication-factor:1); staging must raise replication per Section 6.3",
+      "Runs intra-process with the API service in v1"
+    ]
+  },
+  "references": {
+    "github_repos": [
+      {
+        "repo": "${GITHUB_OWNER}/${GITHUB_REPO}",
+        "branch": "main",
+        "path": "api-service",
+        "notes": "Event bus, transactional outbox, and audit infrastructure live in /api-service; shared Avro schemas under /api-service/src/main/avro. Repo is created and scaffolded by BE-11 (devops-ci-cd-foundation)."
+      }
+    ],
+    "spec_documents": [
+      {
+        "label": "BrokerEdge Design Document — Section 6.3 (Event Bus), Section 7.4 (Audit Trail Design), Section 15.6, Section 16 (AT-2, AT-3, FX-4, AVOID-8, AVOID-9)",
+        "url": "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/blob/main/docs/BrokerEdge_Design_Document.md",
+        "notes": "Authoritative source for outbox, topic design, Avro schemas, and audit immutability."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Outbox relay falls behind under load or continuously polls, adding DB pressure.",
+      "probability": "medium",
+      "impact": "medium",
+      "mitigation": "Bound the relay batch size, index the outbox on published_at, and expose backlog depth as a metric.",
+      "trigger": "Outbox backlog metric grows without draining.",
+      "contingency": "Introduce LISTEN/NOTIFY-triggered relay to reduce idle polling and increase relay throughput."
+    },
+    {
+      "id": "R-2",
+      "description": "Audit consumer shares a failure domain with the API service (intra-process), so a JVM crash halts audit writing.",
+      "probability": "medium",
+      "impact": "high",
+      "mitigation": "Isolate the audit consumer group and alert on its lag; document the shared failure domain per Section 16 A-7.",
+      "trigger": "brokerEdge-audit-writer consumer-group lag exceeds the alert threshold (more than 1,000 messages OR 60 seconds behind, whichever comes first).",
+      "contingency": "Prioritise Phase 2 extraction of the audit consumer into a standalone process."
+    },
+    {
+      "id": "R-3",
+      "description": "Single-partition, single-replica local Kafka config is deployed unchanged to staging, risking audit loss on broker restart.",
+      "probability": "low",
+      "impact": "high",
+      "mitigation": "Gate replication-factor and min.insync.replicas via environment-specific config; make it a CI check per Section 6.3.",
+      "trigger": "Staging topic inspection shows replication-factor 1.",
+      "contingency": "Block staging deploy until topic replication is corrected."
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      {
+        "description": "Docker Compose stack providing Kafka, Schema Registry, and PostgreSQL; runnable service skeletons.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-11",
+        "blocking": true
+      },
+      {
+        "description": "Integration test harness (Testcontainers Kafka + PostgreSQL) to verify outbox, schema compatibility, and immutability.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "epic": "BE-12",
+        "blocking": true
+      }
+    ],
+    "external": [
+      {
+        "description": "Confluent Schema Registry image available in the local stack.",
+        "owner": "timothy.lafleur@orc-test.com",
+        "blocking": true
+      }
+    ]
+  },
+  "definition_of_done": [
+    "Any use case can emit a business event and an audit event atomically with its state change using the shared pattern.",
+    "Domain events are delivered at least once even across a Kafka outage during the write.",
+    "A breaking event schema change is rejected before it can break consumers.",
+    "The audit trail is complete, single-writer, and immutable at the database level.",
+    "Outbox backlog and audit consumer lag are observable with a defined alert threshold."
+  ],
+  "story_outline": [
+    { "title": "Transactional outbox table and bounded relay scheduler", "fr_refs": ["FR-1"] },
+    { "title": "Kafka topic creation with partition-key ordering strategy", "fr_refs": ["FR-2"] },
+    { "title": "Avro envelope + payload schemas with BACKWARD compatibility", "fr_refs": ["FR-3"] },
+    { "title": "AuditableUseCase base class and audit event model", "fr_refs": ["FR-4"] },
+    { "title": "Immutable audit_log and AuditLogConsumer sole writer", "fr_refs": ["FR-5"] },
+    { "title": "Mock notification consumer", "fr_refs": ["FR-6"] },
+    { "title": "Outbox and consumer-lag metrics with audit alert", "fr_refs": ["FR-7"] },
+    { "title": "Author outbox and audit_log migrations", "fr_refs": ["FR-8"] }
+  ]
+}
