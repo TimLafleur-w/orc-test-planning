@@ -1,18 +1,22 @@
 # orc-test Planning Repository
 
-Design and planning artifacts for the **PDLC AI Harness** — an agentic SDLC pipeline that uses Claude Code (BMAD framework) to automate the full software development lifecycle from Jira epics through PR review.
+Design and planning artifacts for the **orc-test PDLC AI Harness** — an agentic SDLC pipeline that uses Claude Code (BMAD framework) to automate the full software development lifecycle from Jira epics through PR review.
 
 ---
+
+## Where we're at 7-21-2026
+Currently we have a first iteration of a design [doc](<target application/BrokerEdge_Design_Document.md>) for the target application and it's pretty exhaustive. This document was created with many iterations with claude. The epics were run through the epic-critic adversarial reviewer and the findings were addressed to where the epics have >= 90 confidence score. The epics can be found in section 11. of the document. The document links to the actual json instances of the epics found in the [epics folder](<target application/jira epics/>). We need to create a first iteration of our bare bones orc-test cli bmad workflow runner so we can test our default workflow against these epics and work on refining and ironing out issues in the agents, skills, and workflows.
 
 ## Repository Structure
 
 ```
 orc-test-planning/
-├── pdlc ai harness/          # Pipeline design, agent specs, and schemas
+├── orc-test pdlc ai harness/          # Pipeline design, agent specs, and schemas
 └── target application/       # BrokerEdge — the sample app the pipeline builds
 ```
 
-### `pdlc ai harness/`
+### `orc-test pdlc ai harness/`
+Everything under this folder is design and planning artifacts for the orc-test cli application. 
 
 | Path | Description |
 |---|---|
@@ -32,7 +36,7 @@ orc-test-planning/
 
 ---
 
-## The Pipeline
+## The Pipeline - subject to change
 
 The PDLC AI Harness drives agents through these stages, consuming Jira epics as input and committing artifacts back to GitHub and Jira at each stage:
 
@@ -45,6 +49,9 @@ The PDLC AI Harness drives agents through these stages, consuming Jira epics as 
 7. **PR Review** — PR reviewer agent scores the final diff
 
 Each stage has a paired adversarial reviewer agent for language-agnostic stages.
+
+Future goal:\
+ We will later see and find that we will likely need agents in the pipeline that assist with the steps of creating the epics/features, the quality and details that go into creating the epics/features will help avoid problems that would lead to lower adversarial reviewer scores. So in the future there will be agents that go before specify agent that help walkthrough and ask questions to get all the details that would go into a SAD or design doc and eventually the epics/features. 
 
 ---
 
